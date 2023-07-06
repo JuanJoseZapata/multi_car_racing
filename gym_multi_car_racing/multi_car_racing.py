@@ -52,7 +52,7 @@ WINDOW_H = 800
 SCALE       = 6.0        # Track scale
 TRACK_RAD   = 900/SCALE  # Track is heavily morphed circle with this radius
 PLAYFIELD   = 2000/SCALE # Game over boundary
-FPS         = 50         # Frames per second
+FPS         = 50        # Frames per second
 ZOOM        = 2.7        # Camera zoom
 ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
 
@@ -166,7 +166,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
     def __init__(self, n_agents=2, verbose=0, direction='CCW',
                  use_random_direction=True, backwards_flag=True, h_ratio=0.25,
-                 use_ego_color=False, render_mode=None):
+                 use_ego_color=False, render_mode="state_pixels"):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -539,6 +539,8 @@ class parallel_env(ParallelEnv, EzPickle):
                 if angle_diff > np.pi:
                     angle_diff = abs(angle_diff - 2 * np.pi)
 
+                print(f"Angle difference: {angle_diff:.2f}", end="\r")
+
                 # If car is driving backward and not on grass, penalize car. The
                 # backwards flag is set even if it is driving on grass.
                 if angle_diff > BACKWARD_THRESHOLD:
@@ -547,6 +549,18 @@ class parallel_env(ParallelEnv, EzPickle):
                 else:
                     self.driving_backward[car_id] = False
 
+                # Penalize car for driving on grass
+                if on_grass:
+                    step_reward[car_id] = -100
+
+                # Reward car for driving fast
+                if np.linalg.norm(vel) > 5:
+                    step_reward[car_id] += 0.5
+
+                # Penalize car for driving too slow
+                if np.linalg.norm(vel) < 5:
+                    step_reward[car_id] -= 0.5
+
             self.prev_reward = self.reward.copy()
 
             # If all tiles were visited
@@ -554,13 +568,13 @@ class parallel_env(ParallelEnv, EzPickle):
                 done = True
 
             # Terminate the episode if a car leaves the field or has a score
-            # lower than -100
+            # lower than -200
             for car_id, car in enumerate(self.cars):
                 x, y = car.hull.position
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
-                if self.reward[car_id] < -100:
+                if self.reward[car_id] < -150:
                     done = True
 
         if self.render_mode == "human":
@@ -671,7 +685,7 @@ class parallel_env(ParallelEnv, EzPickle):
             return self.viewer[car_id].isopen
 
         image_data = pyglet.image.get_buffer_manager().get_color_buffer().get_image_data()
-        arr = np.fromstring(image_data.get_data(), dtype=np.uint8, sep='')
+        arr = np.frombuffer(image_data.get_data(), dtype=np.uint8)
         arr = arr.reshape(VP_H, VP_W, 4)
         arr = arr[::-1, :, 0:3]
 
@@ -746,3 +760,65 @@ class parallel_env(ParallelEnv, EzPickle):
                                           W-75, 70,
                                           W-50, 30)),
                                  ('c3B', (0, 0, 255) * 3))
+
+if __name__=="__main__":
+    from pyglet.window import key
+    NUM_CARS = 1  # Supports key control of two cars, but can simulate as many as needed
+
+    # Specify key controls for cars
+    CAR_CONTROL_KEYS = [[key.LEFT, key.RIGHT, key.UP, key.DOWN],
+                        [key.A, key.D, key.W, key.S]]
+
+    actions = {f"car_{i}": 0 for i in range(NUM_CARS)}
+    def key_press(k, mod):
+        global restart, stopped, CAR_CONTROL_KEYS
+        if k==0xff1b: stopped = True # Terminate on esc.
+        if k==0xff0d: restart = True # Restart on Enter.
+
+        # Iterate through cars and assign them control keys (mod num controllers)
+        for i, car_id in enumerate(actions.keys()):
+            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][0]:  actions[car_id] = 2  # Left
+            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1]:  actions[car_id] = 1  # Right
+            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]:  actions[car_id] = 3  # Gas
+            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]:  actions[car_id] = 4  # Brake
+
+    def key_release(k, mod):
+        global CAR_CONTROL_KEYS
+
+        # Iterate through cars and assign them control keys (mod num controllers)
+        for i, car_id in enumerate(actions.keys()):
+            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][0]: actions[car_id] = 0  # Do nothing
+            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1]: actions[car_id] = 0  # Do nothing
+            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]: actions[car_id] = 0  # Do nothing
+            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id] = 0  # Do nothing
+
+
+    env = parallel_env(n_agents=NUM_CARS, use_random_direction=True, backwards_flag=True, verbose=1)
+    env.render()
+    for viewer in env.viewer:
+        viewer.window.on_key_press = key_press
+        viewer.window.on_key_release = key_release
+    record_video = False
+    if record_video:
+        from gym.wrappers.monitor import Monitor
+        env = Monitor(env, '/tmp/video-test', force=True)
+    isopen = True
+    stopped = False
+    while isopen and not stopped:
+        env.reset()
+        total_reward = {f"car_{i}": 0 for i in range(NUM_CARS)}
+        steps = 0
+        restart = False
+        while True:
+            obs, r, done, _, _ = env.step(actions)
+            for car_id, _ in total_reward.items():
+                total_reward[car_id] += r[car_id]
+            if done["car_0"]:
+                print("\nActions: " + str.join(" ", [f"Car {car_id}: "+str(action) for car_id, action in actions.items()]))
+                print(f"Step {steps} Total_reward "+str(total_reward))
+            steps += 1
+            isopen = env.render().all()
+            if stopped or done["car_0"] or restart or isopen == False:
+                print("BREAK")
+                break
+    env.close()

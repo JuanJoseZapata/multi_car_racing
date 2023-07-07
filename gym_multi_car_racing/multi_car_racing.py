@@ -137,7 +137,7 @@ def env(render_mode=None, **kwargs):
     if render_mode == "ansi":
         env = wrappers.CaptureStdoutWrapper(env)
     # this wrapper helps error handling for discrete action spaces
-    env = wrappers.AssertOutOfBoundsWrapper(env)
+    #env = wrappers.AssertOutOfBoundsWrapper(env)
     # Provides a wide vareity of helpful user errors
     # Strongly recommended
     env = wrappers.OrderEnforcingWrapper(env)
@@ -166,7 +166,8 @@ class parallel_env(ParallelEnv, EzPickle):
 
     def __init__(self, n_agents=2, verbose=0, direction='CCW',
                  use_random_direction=True, backwards_flag=True, h_ratio=0.25,
-                 use_ego_color=False, render_mode="state_pixels"):
+                 use_ego_color=False, render_mode="state_pixels",
+                 discrete_action_space=True):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -194,9 +195,10 @@ class parallel_env(ParallelEnv, EzPickle):
         self.backwards_flag = backwards_flag  # Boolean for rendering backwards driving flag
         self.h_ratio = h_ratio  # Configures vertical location of car within rendered window
         self.use_ego_color = use_ego_color  # Whether to make ego car always render as the same color
+        self.discrete_action_space = discrete_action_space
 
-        self.action_lb = np.tile(np.array([-1,+0,+0]), 1)
-        self.action_ub = np.tile(np.array([+1,+1,+1]), 1)
+        self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
+        self.action_ub = np.tile(np.array([+1,+1,+1]), 1).astype(np.float32)
 
         self.possible_agents = [f"car_{i}" for i in range(self.n_agents)]
         self.agent_name_mapping = dict(
@@ -207,7 +209,11 @@ class parallel_env(ParallelEnv, EzPickle):
                                            [spaces.Box(low=0, high=255, shape=(STATE_H, STATE_W, 3), dtype=np.uint8)]
                                            *self.n_agents))
         
-        self.action_spaces = dict(zip(self.possible_agents, [spaces.Discrete(5)]*self.n_agents))  # do nothing, left, right, gas, brake
+        # Discrete action space
+        if discrete_action_space:
+            self.action_spaces = dict(zip(self.possible_agents, [spaces.Discrete(5)]*self.n_agents))  # do nothing, left, right, gas, brake
+        else:
+            self.action_spaces = dict(zip(self.possible_agents, [spaces.Box(low=self.action_lb, high=self.action_ub, dtype=np.float32)]*self.n_agents))
 
         self.render_mode = render_mode
 
@@ -399,6 +405,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.t = 0.0
         self.road_poly = []
         self.agents = self.possible_agents[:]
+        self.time_on_grass = np.zeros(self.n_agents)
 
         # Reset driving backwards/on-grass states and track direction
         self.driving_backward = np.zeros(self.n_agents, dtype=bool)
@@ -469,12 +476,16 @@ class parallel_env(ParallelEnv, EzPickle):
     def step(self, actions):
         """ Run environment for one timestep. 
         """
-
         if actions is not None:
             for car_id, car in enumerate(self.cars):
-                car.steer(-0.6 * (actions[f"car_{car_id}"] == 1) + 0.6 * (actions[f"car_{car_id}"] == 2))
-                car.gas(0.2 * (actions[f"car_{car_id}"] == 3))
-                car.brake(0.8 * (actions[f"car_{car_id}"] == 4))
+                if self.discrete_action_space:
+                    car.steer(-0.6 * (actions[f"car_{car_id}"] == 1) + 0.6 * (actions[f"car_{car_id}"] == 2))
+                    car.gas(0.2 * (actions[f"car_{car_id}"] == 3))
+                    car.brake(0.8 * (actions[f"car_{car_id}"] == 4))
+                else:
+                    car.steer(-actions[f"car_{car_id}"][0])
+                    car.gas(actions[f"car_{car_id}"][1])
+                    car.brake(actions[f"car_{car_id}"][2])
 
         for car in self.cars:
             car.step(1.0/FPS)
@@ -495,6 +506,8 @@ class parallel_env(ParallelEnv, EzPickle):
 
             step_reward = self.reward - self.prev_reward
 
+            prev_on_grass = self.driving_on_grass.copy()
+
             # Add penalty for driving backward
             for car_id, car in enumerate(self.cars):  # Enumerate through cars
 
@@ -512,7 +525,6 @@ class parallel_env(ParallelEnv, EzPickle):
                 car_pos = np.array(car.hull.position).reshape((1, 2))
                 car_pos_as_point = Point((float(car_pos[:, 0]),
                                           float(car_pos[:, 1])))
-
 
                 # Compute closest point on track to car position (l2 norm)
                 distance_to_tiles = np.linalg.norm(
@@ -539,8 +551,6 @@ class parallel_env(ParallelEnv, EzPickle):
                 if angle_diff > np.pi:
                     angle_diff = abs(angle_diff - 2 * np.pi)
 
-                print(f"Angle difference: {angle_diff:.2f}", end="\r")
-
                 # If car is driving backward and not on grass, penalize car. The
                 # backwards flag is set even if it is driving on grass.
                 if angle_diff > BACKWARD_THRESHOLD:
@@ -549,17 +559,31 @@ class parallel_env(ParallelEnv, EzPickle):
                 else:
                     self.driving_backward[car_id] = False
 
-                # Penalize car for driving on grass
-                if on_grass:
-                    step_reward[car_id] = -100
+                # Reward car for staying on the road
+                if distance_to_tiles.min() < 6:
+                    step_reward[car_id] += 0.5
+
+                # Reward car if the angle difference is small
+                if angle_diff < 0.3:
+                    step_reward[car_id] += 0.5
 
                 # Reward car for driving fast
                 if np.linalg.norm(vel) > 5:
                     step_reward[car_id] += 0.5
 
+                # Penalize the car once for touching the grass
+                if on_grass and not prev_on_grass[car_id]:
+                    step_reward[car_id] = -100
+
                 # Penalize car for driving too slow
                 if np.linalg.norm(vel) < 5:
                     step_reward[car_id] -= 0.5
+
+                # Calculate time spent on grass
+                if on_grass:
+                    self.time_on_grass[car_id] += 1
+                else:
+                    self.time_on_grass[car_id] = 0
 
             self.prev_reward = self.reward.copy()
 
@@ -567,14 +591,16 @@ class parallel_env(ParallelEnv, EzPickle):
             if len(self.track) in self.tile_visited_count:
                 done = True
 
-            # Terminate the episode if a car leaves the field or has a score
-            # lower than -200
+            # Terminate the episode if a car leaves the field, has a score
+            # lower than -200, or spends too much time on grass
             for car_id, car in enumerate(self.cars):
                 x, y = car.hull.position
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
                 if self.reward[car_id] < -150:
+                    done = True
+                if self.time_on_grass[car_id] > 500:
                     done = True
 
         if self.render_mode == "human":
@@ -765,11 +791,13 @@ if __name__=="__main__":
     from pyglet.window import key
     NUM_CARS = 1  # Supports key control of two cars, but can simulate as many as needed
 
+    discrete_action_space = False
+
     # Specify key controls for cars
     CAR_CONTROL_KEYS = [[key.LEFT, key.RIGHT, key.UP, key.DOWN],
                         [key.A, key.D, key.W, key.S]]
 
-    actions = {f"car_{i}": 0 for i in range(NUM_CARS)}
+    actions = {f"car_{i}": 0 for i in range(NUM_CARS)} if discrete_action_space else {f"car_{i}": np.zeros(3) for i in range(NUM_CARS)}
     def key_press(k, mod):
         global restart, stopped, CAR_CONTROL_KEYS
         if k==0xff1b: stopped = True # Terminate on esc.
@@ -777,23 +805,36 @@ if __name__=="__main__":
 
         # Iterate through cars and assign them control keys (mod num controllers)
         for i, car_id in enumerate(actions.keys()):
-            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][0]:  actions[car_id] = 2  # Left
-            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1]:  actions[car_id] = 1  # Right
-            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]:  actions[car_id] = 3  # Gas
-            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]:  actions[car_id] = 4  # Brake
+            if discrete_action_space:
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][0]: actions[car_id] = 2  # Left
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1]: actions[car_id] = 1  # Right
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]: actions[car_id] = 3  # Gas
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id] = 4  # Brake
+            else:
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][0]: actions[car_id][0] = -1.0
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1]: actions[car_id][0] = +1.0
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]: actions[car_id][1] = +1.0
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id][2] = +0.8   # set 1.0 for wheels to block to zero rotation
 
     def key_release(k, mod):
         global CAR_CONTROL_KEYS
 
         # Iterate through cars and assign them control keys (mod num controllers)
         for i, car_id in enumerate(actions.keys()):
-            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][0]: actions[car_id] = 0  # Do nothing
-            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1]: actions[car_id] = 0  # Do nothing
-            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]: actions[car_id] = 0  # Do nothing
-            if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id] = 0  # Do nothing
+            if discrete_action_space:
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][0]: actions[car_id] = 0  # Do nothing
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1]: actions[car_id] = 0  # Do nothing
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]: actions[car_id] = 0  # Do nothing
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id] = 0  # Do nothing
+            else:
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][0] and actions[car_id][0]==-1.0: actions[car_id][0] = 0
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1] and actions[car_id][0]==+1.0: actions[car_id][0] = 0
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]: actions[car_id][1] = 0
+                if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id][2] = 0
 
 
-    env = parallel_env(n_agents=NUM_CARS, use_random_direction=True, backwards_flag=True, verbose=1)
+    env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
+                       backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space)
     env.render()
     for viewer in env.viewer:
         viewer.window.on_key_press = key_press
@@ -819,6 +860,5 @@ if __name__=="__main__":
             steps += 1
             isopen = env.render().all()
             if stopped or done["car_0"] or restart or isopen == False:
-                print("BREAK")
                 break
     env.close()

@@ -15,6 +15,20 @@ from shapely.geometry import Point, Polygon
 from pettingzoo import ParallelEnv
 from pettingzoo.utils import parallel_to_aec, wrappers
 
+import cv2
+
+
+grayscale = False
+dict_obs_space = False
+
+def preprocess(img):
+    img = img[:84, 6:90, :] # CarRacing-v2-specific cropping
+    img = cv2.resize(img, dsize=(84, 84)) # or you can simply use rescaling
+    if grayscale:
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        img = np.expand_dims(img, -1)
+    return img / 255.0
+
 # Easiest continuous control task to learn from pixels, a top-down racing environment.
 # Discrete control is reasonable in this environment as well, on/off discretization is
 # fine.
@@ -42,8 +56,8 @@ from pettingzoo.utils import parallel_to_aec, wrappers
 #
 # Created by Oleg Klimov. Licensed on the same terms as the rest of OpenAI Gym.
 
-STATE_W = 96   # less than Atari 160x192
-STATE_H = 96
+STATE_W = 96   # 96 less than Atari 160x192
+STATE_H = 96   # 96
 VIDEO_W = 600
 VIDEO_H = 400
 WINDOW_W = 1000
@@ -205,9 +219,14 @@ class parallel_env(ParallelEnv, EzPickle):
             zip(self.possible_agents, list(range(len(self.possible_agents))))
         )
 
+        shape = (84, 84, 1) if grayscale else (84, 84, 3)
+        if dict_obs_space:
+            obs_space = spaces.Dict({"observation": spaces.Box(low=0, high=1, shape=shape, dtype=np.float32),
+                                     "speed": spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)})
+        else:
+            obs_space = spaces.Box(low=0, high=1, shape=shape, dtype=np.float32)
         self.observation_spaces = dict(zip(self.possible_agents,
-                                           [spaces.Box(low=0, high=255, shape=(STATE_H, STATE_W, 3), dtype=np.uint8)]
-                                           *self.n_agents))
+                                           [obs_space]*self.n_agents))
         
         # Discrete action space
         if discrete_action_space:
@@ -406,6 +425,9 @@ class parallel_env(ParallelEnv, EzPickle):
         self.road_poly = []
         self.agents = self.possible_agents[:]
         self.time_on_grass = np.zeros(self.n_agents)
+        self.elapsed_time = 0
+        self.percent_completed = np.zeros(self.n_agents)
+        self.speed = np.zeros(self.n_agents)
 
         # Reset driving backwards/on-grass states and track direction
         self.driving_backward = np.zeros(self.n_agents, dtype=bool)
@@ -468,7 +490,13 @@ class parallel_env(ParallelEnv, EzPickle):
                 wheel.car_id = car_id
 
         obs = self.render("state_pixels")
-        observations = {agent: obs[i] for i, agent in enumerate(self.agents)}
+        if dict_obs_space:
+            observations = {agent: {"observation": preprocess(obs[i]),
+                                    "speed": 0} for  i, agent in enumerate(self.agents)}
+        else:
+            observations = {agent: preprocess(obs[i]) for i, agent in enumerate(self.agents)}
+
+        #observations = {agent: preprocess(obs[i]) for i, agent in enumerate(self.agents)}
         infos = {agent: {} for agent in self.agents}
 
         return observations, infos
@@ -494,6 +522,8 @@ class parallel_env(ParallelEnv, EzPickle):
 
         self.state = self.render("state_pixels")
 
+        self.elapsed_time += 1
+
         step_reward = np.zeros(self.n_agents)
         done = False
         if actions is not None: # First step without action, called from reset()
@@ -504,8 +534,6 @@ class parallel_env(ParallelEnv, EzPickle):
             # NOTE(IG): Probably not relevant. Seems not to be used anywhere. Commented it out.
             # self.cars[0].fuel_spent = 0.0
 
-            step_reward = self.reward - self.prev_reward
-
             prev_on_grass = self.driving_on_grass.copy()
 
             # Add penalty for driving backward
@@ -513,6 +541,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
                 # Get car speed
                 vel = car.hull.linearVelocity
+                self.speed[car_id] = np.linalg.norm(vel)
                 if np.linalg.norm(vel) > 0.5:  # If fast, compute angle with v
                     car_angle = -math.atan2(vel[0], vel[1])
                 else:  # If slow, compute with hull
@@ -559,25 +588,17 @@ class parallel_env(ParallelEnv, EzPickle):
                 else:
                     self.driving_backward[car_id] = False
 
-                # Reward car for staying on the road
-                if distance_to_tiles.min() < 6:
-                    step_reward[car_id] += 0.5
+                # Penalize car for driving off road
+                if distance_to_tiles.min() > 6:
+                    self.reward[car_id] -= 0.4
 
-                # Reward car if the angle difference is small
-                if angle_diff < 0.3:
-                    step_reward[car_id] += 0.5
-
-                # Reward car for driving fast
-                if np.linalg.norm(vel) > 5:
-                    step_reward[car_id] += 0.5
+                # Penalize car if angle difference is large
+                if angle_diff > 0.5:
+                    self.reward[car_id] -= 0.2
 
                 # Penalize the car once for touching the grass
-                if on_grass and not prev_on_grass[car_id]:
-                    step_reward[car_id] = -100
-
-                # Penalize car for driving too slow
-                if np.linalg.norm(vel) < 5:
-                    step_reward[car_id] -= 0.5
+                # if on_grass and not prev_on_grass[car_id]:
+                #     self.reward[car_id] -= 5
 
                 # Calculate time spent on grass
                 if on_grass:
@@ -585,31 +606,40 @@ class parallel_env(ParallelEnv, EzPickle):
                 else:
                     self.time_on_grass[car_id] = 0
 
-            self.prev_reward = self.reward.copy()
+                self.percent_completed[car_id] = self.tile_visited_count[car_id] / len(self.track)
 
             # If all tiles were visited
             if len(self.track) in self.tile_visited_count:
                 done = True
 
-            # Terminate the episode if a car leaves the field, has a score
-            # lower than -200, or spends too much time on grass
+            # Terminate the episode if a car leaves the field or if a car
+            # spends too much time on grass
             for car_id, car in enumerate(self.cars):
                 x, y = car.hull.position
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
-                if self.reward[car_id] < -150:
+                if self.time_on_grass[car_id] > 1000:
                     done = True
-                if self.time_on_grass[car_id] > 500:
+                # Terminate the episode if the time limit is reached and
+                # the car has completed at least 80% of the track
+                if self.percent_completed[car_id] > 0.8 and self.elapsed_time > 2000:
                     done = True
 
+        step_reward = self.reward - self.prev_reward
+        self.prev_reward = self.reward.copy()
+
         if self.render_mode == "human":
-            self.render()
+            self.render(self.render_mode)
 
         # Convert step_reward to a dictionary
         step_reward = {car_id: step_reward[i] for i, car_id in enumerate(self.agents)}
 
-        observations = {car_id: self.state[i] for i, car_id in enumerate(self.agents)}
+        if dict_obs_space:
+            observations = {car_id: {"observation": preprocess(self.state[i]),
+                                    "speed": self.speed[i]/100.} for  i, car_id in enumerate(self.agents)}
+        else:
+            observations = {car_id: preprocess(self.state[i]) for i, car_id in enumerate(self.agents)}
 
         terminations = {car_id: done for car_id in self.agents}
         truncations = {car_id: done for car_id in self.agents}
@@ -622,7 +652,7 @@ class parallel_env(ParallelEnv, EzPickle):
         else:
             return observations, step_reward, terminations, truncations, infos
 
-    def render(self, mode='human'):
+    def render(self, mode='state_pixels'):
         assert mode in ['human', 'state_pixels', 'rgb_array']
 
         result = []
@@ -789,7 +819,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
 if __name__=="__main__":
     from pyglet.window import key
-    NUM_CARS = 1  # Supports key control of two cars, but can simulate as many as needed
+    NUM_CARS = 2  # Supports key control of two cars, but can simulate as many as needed
 
     discrete_action_space = False
 
@@ -835,7 +865,7 @@ if __name__=="__main__":
 
     env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
                        backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space)
-    env.render()
+    env.render("human")
     for viewer in env.viewer:
         viewer.window.on_key_press = key_press
         viewer.window.on_key_release = key_release
@@ -846,7 +876,7 @@ if __name__=="__main__":
     isopen = True
     stopped = False
     while isopen and not stopped:
-        env.reset()
+        env.reset()        
         total_reward = {f"car_{i}": 0 for i in range(NUM_CARS)}
         steps = 0
         restart = False
@@ -858,7 +888,7 @@ if __name__=="__main__":
                 print("\nActions: " + str.join(" ", [f"Car {car_id}: "+str(action) for car_id, action in actions.items()]))
                 print(f"Step {steps} Total_reward "+str(total_reward))
             steps += 1
-            isopen = env.render().all()
+            isopen = env.render("human").all()
             if stopped or done["car_0"] or restart or isopen == False:
                 break
     env.close()

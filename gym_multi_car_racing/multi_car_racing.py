@@ -20,14 +20,28 @@ import cv2
 
 grayscale = False
 dict_obs_space = False
-normalize = True
+normalize = False
+edge_detection = False
+
+# Limits for removing the green background (grass)
+lower_green = np.array([25, 52, 72])
+upper_green = np.array([102, 255, 255])
+
+remove_grass = True
 
 def preprocess(img):
     img = img[:84, 6:90, :] # CarRacing-v2-specific cropping
-    img = cv2.resize(img, dsize=(84, 84)) # or you can simply use rescaling
-    # if grayscale:
-    #     img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    #     img = np.expand_dims(img, -1)
+    # img = cv2.resize(img, dsize=(84, 84)) # or you can simply use rescaling
+    if edge_detection:
+        img = cv2.Canny(img, 100, 200) # Canny Edge Detection
+        img = np.expand_dims(img, -1) # Add channel dimension
+
+    if remove_grass:
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, lower_green, upper_green)
+        img[mask>0]=(0, 0, 0)
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
     if normalize:
         return (img / 255.).astype(np.float32)
     else:
@@ -215,7 +229,7 @@ class parallel_env(ParallelEnv, EzPickle):
         )
         
         # Shape of one frame
-        self.frame_shape = (84, 84, 3) if not grayscale else (84, 84, 1)
+        self.frame_shape = (84, 84, 1) if (grayscale or edge_detection or remove_grass) else (84, 84, 3)
         high = 1 if normalize else 255
         dtype = np.float32 if normalize else np.uint8
 
@@ -587,12 +601,14 @@ class parallel_env(ParallelEnv, EzPickle):
                     self.reward[car_id] -= 0.2
 
                 # Penalize the car once for touching the grass
-                # if on_grass and not prev_on_grass[car_id]:
-                #     self.reward[car_id] -= 5
+                if on_grass and not prev_on_grass[car_id]:
+                    self.reward[car_id] -= 5
 
                 # Penalize car for driving slowly
-                if self.speed[car_id] < 4:
+                if self.speed[car_id] < 40:
                     self.reward[car_id] -= 0.3
+
+                # print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
 
                 # Calculate time spent on grass
                 if on_grass:
@@ -814,7 +830,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
 if __name__=="__main__":
     from pyglet.window import key
-    NUM_CARS = 2  # Supports key control of two cars, but can simulate as many as needed
+    NUM_CARS = 1  # Supports key control of two cars, but can simulate as many as needed
 
     discrete_action_space = False
 

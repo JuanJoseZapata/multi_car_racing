@@ -437,6 +437,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.elapsed_time = 0
         self.percent_completed = np.zeros(self.n_agents)
         self.speed = np.zeros(self.n_agents)
+        self.color = [(0, 255, 0), (0, 255, 0)]
 
         # Reset driving backwards/on-grass states and track direction
         self.driving_backward = np.zeros(self.n_agents, dtype=bool)
@@ -540,7 +541,6 @@ class parallel_env(ParallelEnv, EzPickle):
 
             prev_on_grass = self.driving_on_grass.copy()
 
-            # Add penalty for driving backward
             for car_id, car in enumerate(self.cars):  # Enumerate through cars
 
                 # Get car speed
@@ -558,6 +558,11 @@ class parallel_env(ParallelEnv, EzPickle):
                 car_pos = np.array(car.hull.position).reshape((1, 2))
                 car_pos_as_point = Point((float(car_pos[:, 0]),
                                           float(car_pos[:, 1])))
+
+                # Predict car position in next 100 steps
+                next_pos = car_pos + 10 * vel/FPS
+                next_pos_as_point = Point((float(next_pos[:, 0]),
+                                          float(next_pos[:, 1])))
 
                 # Compute closest point on track to car position (l2 norm)
                 distance_to_tiles = np.linalg.norm(
@@ -596,6 +601,15 @@ class parallel_env(ParallelEnv, EzPickle):
                 if distance_to_tiles.min() > 6:
                     self.reward[car_id] -= 0.2
 
+                # Penalize car if predicted position is off road
+                on_grass_next_obs = not np.array([next_pos_as_point.within(polygon)
+                                                  for polygon in self.road_poly_shapely]).any()
+                if on_grass_next_obs:
+                    self.reward[car_id] -= 0.3
+                    self.color[car_id] = (255, 0, 0)
+                else:
+                    self.color[car_id] = (0, 255, 0)
+
                 # Penalize car if angle difference is large
                 if angle_diff > 0.5:
                     self.reward[car_id] -= 0.2
@@ -608,7 +622,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if self.speed[car_id] < 40:
                     self.reward[car_id] -= 0.3
 
-                # print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
+                #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
 
                 # Calculate time spent on grass
                 if on_grass:
@@ -784,6 +798,7 @@ class parallel_env(ParallelEnv, EzPickle):
             gl.glColor4f(color[0], color[1], color[2], 1)
             for p in poly:
                 gl.glVertex3f(p[0], p[1], 0)
+        
         gl.glEnd()
 
     def render_indicators(self, agent_id, W, H):
@@ -827,6 +842,28 @@ class parallel_env(ParallelEnv, EzPickle):
                                           W-75, 70,
                                           W-50, 30)),
                                  ('c3B', (0, 0, 255) * 3))
+        
+        render_next_pos = False
+        if render_next_pos:
+            # Render next position of car
+            angle = -self.cars[agent_id].hull.angle
+            vel = self.cars[agent_id].hull.linearVelocity
+
+            # Get car velocity in car coordinates
+            vel_rel = np.zeros(2)
+            vel_rel[0] = vel[0] * math.cos(angle) - vel[1] * math.sin(angle)
+            vel_rel[1] = vel[0] * math.sin(angle) + vel[1] * math.cos(angle)
+            # Predict next position of car (10 steps)
+            next_pos_rel = vel_rel * 100./FPS
+            
+            # Next position relative to current position
+            x = int(W/2 + next_pos_rel[0])
+            y = int(H*0.25 + next_pos_rel[1])
+            pyglet.graphics.draw(3, gl.GL_TRIANGLES,
+                                    ('v2i', (x-10, y,
+                                            x+10, y,
+                                            x, y+10)),
+                                    ('c3B', self.color[agent_id] * 3))
 
 if __name__=="__main__":
     from pyglet.window import key
@@ -872,7 +909,6 @@ if __name__=="__main__":
                 if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][1] and actions[car_id][0]==+1.0: actions[car_id][0] = 0
                 if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]: actions[car_id][1] = 0
                 if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id][2] = 0
-
 
     env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
                        backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space)

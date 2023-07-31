@@ -18,34 +18,19 @@ from pettingzoo.utils import parallel_to_aec, wrappers
 import cv2
 
 
-grayscale = False
 dict_obs_space = False
-normalize = False
-edge_detection = False
 
 # Limits for removing the green background (grass)
 lower_green = np.array([25, 52, 72])
 upper_green = np.array([102, 255, 255])
 
-remove_grass = True
 
 def preprocess(img):
     img = img[:84, 6:90, :] # CarRacing-v2-specific cropping
     # img = cv2.resize(img, dsize=(84, 84)) # or you can simply use rescaling
-    if edge_detection:
-        img = cv2.Canny(img, 100, 200) # Canny Edge Detection
-        img = np.expand_dims(img, -1) # Add channel dimension
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    if remove_grass:
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, lower_green, upper_green)
-        img[mask>0]=(0, 0, 0)
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
-    if normalize:
-        return (img / 255.).astype(np.float32)
-    else:
-        return img
+    return img
 
 # Easiest continuous control task to learn from pixels, a top-down racing environment.
 # Discrete control is reasonable in this environment as well, on/off discretization is
@@ -81,7 +66,7 @@ VIDEO_H = 400
 WINDOW_W = 1000
 WINDOW_H = 800
 
-SCALE       = 6.0        # Track scale
+SCALE       = 6.0        # Track scale (default = 6.0)
 TRACK_RAD   = 900/SCALE  # Track is heavily morphed circle with this radius
 PLAYFIELD   = 2000/SCALE # Game over boundary
 FPS         = 50        # Frames per second
@@ -89,11 +74,11 @@ ZOOM        = 2.7        # Camera zoom
 ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
 
 
-TRACK_DETAIL_STEP = 21/SCALE
-TRACK_TURN_RATE = 0.31
-TRACK_WIDTH = 40/SCALE
-BORDER = 8/SCALE
-BORDER_MIN_COUNT = 4
+TRACK_DETAIL_STEP = 21/SCALE  # Default 21
+TRACK_TURN_RATE = 0.31  # Default 0.31
+TRACK_WIDTH = 40/SCALE  # Default 40
+BORDER = 8/SCALE  # Default 8
+BORDER_MIN_COUNT = 4  # Default 4
 
 ROAD_COLOR = [0.4, 0.4, 0.4]
 
@@ -133,9 +118,11 @@ class FrictionDetector(contactListener):
         if not tile:
             return
 
-        tile.color[0] = ROAD_COLOR[0]
-        tile.color[1] = ROAD_COLOR[1]
-        tile.color[2] = ROAD_COLOR[2]
+        # tile.color[0] = ROAD_COLOR[0]
+        # tile.color[1] = ROAD_COLOR[1]
+        # tile.color[2] = ROAD_COLOR[2]
+
+        tile.color[:] = self.env.road_color
 
         # This check seems to implicitly make sure that we only look at wheels as the tiles 
         # attribute is only set for wheels in car_dynamics.py.
@@ -190,7 +177,8 @@ class parallel_env(ParallelEnv, EzPickle):
     def __init__(self, n_agents=2, verbose=0, direction='CCW',
                  use_random_direction=True, backwards_flag=True, h_ratio=0.25,
                  use_ego_color=False, render_mode="state_pixels",
-                 discrete_action_space=True):
+                 discrete_action_space=True, percent_complete=0.95,
+                 domain_randomize=False):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -219,6 +207,9 @@ class parallel_env(ParallelEnv, EzPickle):
         self.h_ratio = h_ratio  # Configures vertical location of car within rendered window
         self.use_ego_color = use_ego_color  # Whether to make ego car always render as the same color
         self.discrete_action_space = discrete_action_space
+        self.percent_complete = percent_complete  # Percentage of track completion required to finish episode
+        self.domain_randomize = domain_randomize  # Whether to randomize the background and grass colors
+        self._init_colors()
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
         self.action_ub = np.tile(np.array([+1,+1,+1]), 1).astype(np.float32)
@@ -229,9 +220,9 @@ class parallel_env(ParallelEnv, EzPickle):
         )
         
         # Shape of one frame
-        self.frame_shape = (84, 84, 1) if (grayscale or edge_detection or remove_grass) else (84, 84, 3)
-        high = 1 if normalize else 255
-        dtype = np.float32 if normalize else np.uint8
+        self.frame_shape = (84, 84, 1)
+        high = 1
+        dtype = np.uint8
 
         obs_space = spaces.Box(low=0, high=high, shape=self.frame_shape, dtype=dtype)
         self.observation_spaces = dict(zip(self.possible_agents,
@@ -267,6 +258,37 @@ class parallel_env(ParallelEnv, EzPickle):
 
         for car in self.cars:
             car.destroy()
+
+    def _init_colors(self):
+        if self.domain_randomize:
+            # domain randomize the bg and grass colour
+            self.road_color = self.np_random.uniform(0, 210, size=3)/255.
+
+            self.bg_color = self.np_random.uniform(0, 210, size=3)/255.
+
+            self.grass_color = np.copy(self.bg_color)
+            idx = self.np_random.integers(3)
+            self.grass_color[idx] += 20 / 255.
+        else:
+            # default colours
+            self.road_color = np.array([102, 102, 102])/255.
+            self.bg_color = np.array([102, 204, 102])/255.
+            self.grass_color = np.array([102, 230, 102])/255.
+
+    def _reinit_colors(self, randomize):
+        assert (
+            self.domain_randomize
+        ), "domain_randomize must be True to use this function."
+
+        if randomize:
+            # domain randomize the bg and grass colour
+            self.road_color = self.np_random.uniform(0, 210, size=3)/255.
+
+            self.bg_color = self.np_random.uniform(0, 210, size=3)/255.
+
+            self.grass_color = np.copy(self.bg_color)
+            idx = self.np_random.integers(3)
+            self.grass_color[idx] += 20 / 255.
 
     def _create_track(self):
         CHECKPOINTS = 12
@@ -407,9 +429,9 @@ class parallel_env(ParallelEnv, EzPickle):
             t = self.world.CreateStaticBody(fixtures=self.fd_tile)
             t.userData = t
             c = 0.01*(i%3)
-            t.color = [ROAD_COLOR[0] + c, ROAD_COLOR[1] + c, ROAD_COLOR[2] + c]
+            t.color = self.road_color + c
             t.road_visited = [False]*self.n_agents
-            t.road_friction = 1.0
+            t.road_friction = 1.0  # Default 1.0
             t.fixtures[0].sensor = True
             self.road_poly.append(( [road1_l, road1_r, road2_r, road2_l], t.color ))
             self.road.append(t)
@@ -438,6 +460,14 @@ class parallel_env(ParallelEnv, EzPickle):
         self.percent_completed = np.zeros(self.n_agents)
         self.speed = np.zeros(self.n_agents)
         self.color = [(0, 255, 0), (0, 255, 0)]
+
+        if self.domain_randomize:
+            randomize = True
+            if isinstance(options, dict):
+                if "randomize" in options:
+                    randomize = options["randomize"]
+
+            self._reinit_colors(randomize)
 
         # Reset driving backwards/on-grass states and track direction
         self.driving_backward = np.zeros(self.n_agents, dtype=bool)
@@ -598,29 +628,20 @@ class parallel_env(ParallelEnv, EzPickle):
                     self.driving_backward[car_id] = False
 
                 # Penalize car for driving off road
-                if distance_to_tiles.min() > 6:
-                    self.reward[car_id] -= 0.2
-
-                # Penalize car if predicted position is off road
-                on_grass_next_obs = not np.array([next_pos_as_point.within(polygon)
-                                                  for polygon in self.road_poly_shapely]).any()
-                if on_grass_next_obs:
-                    self.reward[car_id] -= 0.3
-                    self.color[car_id] = (255, 0, 0)
-                else:
-                    self.color[car_id] = (0, 255, 0)
+                # if distance_to_tiles.min() > 6:
+                #     self.reward[car_id] -= 0.2
 
                 # Penalize car if angle difference is large
-                if angle_diff > 0.5:
-                    self.reward[car_id] -= 0.2
+                # if angle_diff > 0.5:
+                #     self.reward[car_id] -= 0.2
 
                 # Penalize the car once for touching the grass
-                if on_grass and not prev_on_grass[car_id]:
-                    self.reward[car_id] -= 5
+                # if on_grass and not prev_on_grass[car_id]:
+                #     self.reward[car_id] -= 5
 
                 # Penalize car for driving slowly
-                if self.speed[car_id] < 40:
-                    self.reward[car_id] -= 0.3
+                # if self.speed[car_id] < 40:
+                #     self.reward[car_id] -= 0.3
 
                 #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
 
@@ -633,7 +654,11 @@ class parallel_env(ParallelEnv, EzPickle):
                 self.percent_completed[car_id] = self.tile_visited_count[car_id] / len(self.track)
 
             # If all tiles were visited
-            if len(self.track) in self.tile_visited_count:
+            # if len(self.track) in self.tile_visited_count:
+            #     done = True
+
+            # If percent of track completed is greater than given threshold
+            if self.percent_completed[car_id] > self.percent_complete:
                 done = True
 
             # Terminate the episode if a car leaves the field, spends too much
@@ -781,12 +806,12 @@ class parallel_env(ParallelEnv, EzPickle):
 
     def render_road(self):
         gl.glBegin(gl.GL_QUADS)
-        gl.glColor4f(0.4, 0.8, 0.4, 1.0)
+        gl.glColor4f(self.bg_color[0], self.bg_color[1], self.bg_color[2], 1.0)  # 0.4, 0.8, 0.4
         gl.glVertex3f(-PLAYFIELD, +PLAYFIELD, 0)
         gl.glVertex3f(+PLAYFIELD, +PLAYFIELD, 0)
         gl.glVertex3f(+PLAYFIELD, -PLAYFIELD, 0)
         gl.glVertex3f(-PLAYFIELD, -PLAYFIELD, 0)
-        gl.glColor4f(0.4, 0.9, 0.4, 1.0)
+        gl.glColor4f(self.grass_color[0], self.grass_color[1], self.grass_color[2], 1.0)  # 0.4, 0.9, 0.4
         k = PLAYFIELD/20.0
         for x in range(-20, 20, 2):
             for y in range(-20, 20, 2):
@@ -842,28 +867,7 @@ class parallel_env(ParallelEnv, EzPickle):
                                           W-75, 70,
                                           W-50, 30)),
                                  ('c3B', (0, 0, 255) * 3))
-        
-        render_next_pos = False
-        if render_next_pos:
-            # Render next position of car
-            angle = -self.cars[agent_id].hull.angle
-            vel = self.cars[agent_id].hull.linearVelocity
-
-            # Get car velocity in car coordinates
-            vel_rel = np.zeros(2)
-            vel_rel[0] = vel[0] * math.cos(angle) - vel[1] * math.sin(angle)
-            vel_rel[1] = vel[0] * math.sin(angle) + vel[1] * math.cos(angle)
-            # Predict next position of car (10 steps)
-            next_pos_rel = vel_rel * 100./FPS
             
-            # Next position relative to current position
-            x = int(W/2 + next_pos_rel[0])
-            y = int(H*0.25 + next_pos_rel[1])
-            pyglet.graphics.draw(3, gl.GL_TRIANGLES,
-                                    ('v2i', (x-10, y,
-                                            x+10, y,
-                                            x, y+10)),
-                                    ('c3B', self.color[agent_id] * 3))
 
 if __name__=="__main__":
     from pyglet.window import key
@@ -911,7 +915,8 @@ if __name__=="__main__":
                 if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id][2] = 0
 
     env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
-                       backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space)
+                       backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space,
+                       domain_randomize=True)
     env.render("human")
     for viewer in env.viewer:
         viewer.window.on_key_press = key_press

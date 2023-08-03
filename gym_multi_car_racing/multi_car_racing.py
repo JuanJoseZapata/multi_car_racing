@@ -25,10 +25,11 @@ lower_green = np.array([25, 52, 72])
 upper_green = np.array([102, 255, 255])
 
 
-def preprocess(img):
+def preprocess(img, grayscale):
     img = img[:84, 6:90, :] # CarRacing-v2-specific cropping
     # img = cv2.resize(img, dsize=(84, 84)) # or you can simply use rescaling
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    if grayscale:
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     return img
 
@@ -67,18 +68,21 @@ WINDOW_W = 1000
 WINDOW_H = 800
 
 SCALE       = 6.0        # Track scale (default = 6.0)
-TRACK_RAD   = 900/SCALE  # Track is heavily morphed circle with this radius
+TRACK_RAD   = 900/SCALE  # Track is heavily morphed circle with this radius (default = 900)
 PLAYFIELD   = 2000/SCALE # Game over boundary
 FPS         = 50        # Frames per second
-ZOOM        = 2.7        # Camera zoom
+ZOOM        = 2.7        # Camera zoom (default = 2.7)
 ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
 
 
 TRACK_DETAIL_STEP = 21/SCALE  # Default 21
-TRACK_TURN_RATE = 0.31  # Default 0.31
+TRACK_TURN_RATE = 0.4  # Default 0.31
 TRACK_WIDTH = 40/SCALE  # Default 40
 BORDER = 8/SCALE  # Default 8
 BORDER_MIN_COUNT = 4  # Default 4
+
+ROAD_FRICTION = 1.0  # Default 1.0
+DOMAIN_RANDOMIZE = True  # Default False
 
 ROAD_COLOR = [0.4, 0.4, 0.4]
 
@@ -177,8 +181,9 @@ class parallel_env(ParallelEnv, EzPickle):
     def __init__(self, n_agents=2, verbose=0, direction='CCW',
                  use_random_direction=True, backwards_flag=True, h_ratio=0.25,
                  use_ego_color=False, render_mode="state_pixels",
-                 discrete_action_space=True, percent_complete=0.95,
-                 domain_randomize=False):
+                 discrete_action_space=False, grayscale=False,
+                 percent_complete=0.95, domain_randomize=False,
+                 penalties=False):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -207,8 +212,10 @@ class parallel_env(ParallelEnv, EzPickle):
         self.h_ratio = h_ratio  # Configures vertical location of car within rendered window
         self.use_ego_color = use_ego_color  # Whether to make ego car always render as the same color
         self.discrete_action_space = discrete_action_space
+        self.grayscale = grayscale
         self.percent_complete = percent_complete  # Percentage of track completion required to finish episode
         self.domain_randomize = domain_randomize  # Whether to randomize the background and grass colors
+        self.penalties = penalties  # Whether to add penalties for driving backwards and driving on grass
         self._init_colors()
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
@@ -220,7 +227,7 @@ class parallel_env(ParallelEnv, EzPickle):
         )
         
         # Shape of one frame
-        self.frame_shape = (84, 84, 1)
+        self.frame_shape = (84, 84, 1) if self.grayscale else (84, 84, 3)
         high = 1
         dtype = np.uint8
 
@@ -431,7 +438,7 @@ class parallel_env(ParallelEnv, EzPickle):
             c = 0.01*(i%3)
             t.color = self.road_color + c
             t.road_visited = [False]*self.n_agents
-            t.road_friction = 1.0  # Default 1.0
+            t.road_friction = ROAD_FRICTION  # Default 1.0
             t.fixtures[0].sensor = True
             self.road_poly.append(( [road1_l, road1_r, road2_r, road2_l], t.color ))
             self.road.append(t)
@@ -530,7 +537,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 wheel.car_id = car_id
 
         obs = self.render("state_pixels")
-        observations = {agent: preprocess(obs[i]) for i, agent in enumerate(self.agents)}
+        observations = {agent: preprocess(obs[i], self.grayscale) for i, agent in enumerate(self.agents)}
 
         infos = {agent: {} for agent in self.agents}
 
@@ -627,21 +634,23 @@ class parallel_env(ParallelEnv, EzPickle):
                 else:
                     self.driving_backward[car_id] = False
 
-                # Penalize car for driving off road
-                # if distance_to_tiles.min() > 6:
-                #     self.reward[car_id] -= 0.2
+                # Penalties
+                if self.penalties:
+                    # Penalize car for driving off road
+                    if distance_to_tiles.min() > 6:
+                        self.reward[car_id] -= 0.2
 
-                # Penalize car if angle difference is large
-                # if angle_diff > 0.5:
-                #     self.reward[car_id] -= 0.2
+                    # Penalize car if angle difference is large
+                    if angle_diff > 0.5:
+                        self.reward[car_id] -= 0.2
 
-                # Penalize the car once for touching the grass
-                # if on_grass and not prev_on_grass[car_id]:
-                #     self.reward[car_id] -= 5
+                    # Penalize the car once for touching the grass
+                    if on_grass and not prev_on_grass[car_id]:
+                        self.reward[car_id] -= 5
 
-                # Penalize car for driving slowly
-                # if self.speed[car_id] < 40:
-                #     self.reward[car_id] -= 0.3
+                    # Penalize car for driving slowly
+                    if self.speed[car_id] < 40:
+                        self.reward[car_id] -= 0.3
 
                 #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
 
@@ -686,10 +695,10 @@ class parallel_env(ParallelEnv, EzPickle):
         step_reward = {car_id: step_reward[i] for i, car_id in enumerate(self.agents)}
 
         if dict_obs_space:
-            observations = {car_id: {"observation": preprocess(self.state[i]),
+            observations = {car_id: {"observation": preprocess(self.state[i], self.grayscale),
                                     "speed": self.speed[i]/100.} for  i, car_id in enumerate(self.agents)}
         else:
-            observations = {car_id: preprocess(self.state[i]) for i, car_id in enumerate(self.agents)}
+            observations = {car_id: preprocess(self.state[i], self.grayscale) for i, car_id in enumerate(self.agents)}
 
         terminations = {car_id: done for car_id in self.agents}
         truncations = {car_id: done for car_id in self.agents}
@@ -916,7 +925,7 @@ if __name__=="__main__":
 
     env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
                        backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space,
-                       domain_randomize=True)
+                       domain_randomize=DOMAIN_RANDOMIZE)
     env.render("human")
     for viewer in env.viewer:
         viewer.window.on_key_press = key_press

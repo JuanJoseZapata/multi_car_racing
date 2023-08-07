@@ -76,7 +76,7 @@ ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
 
 
 TRACK_DETAIL_STEP = 21/SCALE  # Default 21
-TRACK_TURN_RATE = 0.4  # Default 0.31
+TRACK_TURN_RATE = 0.31  # Default 0.31
 TRACK_WIDTH = 40/SCALE  # Default 40
 BORDER = 8/SCALE  # Default 8
 BORDER_MIN_COUNT = 4  # Default 4
@@ -704,6 +704,9 @@ class parallel_env(ParallelEnv, EzPickle):
         truncations = {car_id: done for car_id in self.agents}
 
         infos = {car_id: {} for car_id in self.agents}
+
+        if done and self.verbose == 1:
+            print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}\n")
 
         # If no actions are passed
         if actions is None:

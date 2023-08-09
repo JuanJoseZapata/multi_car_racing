@@ -80,9 +80,10 @@ TRACK_TURN_RATE = 0.31  # Default 0.31
 TRACK_WIDTH = 40/SCALE  # Default 40
 BORDER = 8/SCALE  # Default 8
 BORDER_MIN_COUNT = 4  # Default 4
+CHECKPOINTS = 12  # Default 12
 
 ROAD_FRICTION = 1.0  # Default 1.0
-DOMAIN_RANDOMIZE = True  # Default False
+DOMAIN_RANDOMIZE = False  # Default False
 
 ROAD_COLOR = [0.4, 0.4, 0.4]
 
@@ -298,7 +299,6 @@ class parallel_env(ParallelEnv, EzPickle):
             self.grass_color[idx] += 20 / 255.
 
     def _create_track(self):
-        CHECKPOINTS = 12
 
         # Create checkpoints
         checkpoints = []

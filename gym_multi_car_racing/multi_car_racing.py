@@ -8,6 +8,13 @@ import gym.envs.box2d.car_dynamics as car_dynamics
 from gymnasium import spaces
 from gymnasium.utils import colorize, seeding, EzPickle
 
+try:
+    from pyglet.window import key
+except Exception as e:
+    import pyvirtualdisplay
+    # Creates a virtual display for OpenAI gym
+    pyvirtualdisplay.Display(visible=0, size=(1400, 900)).start()
+
 import pyglet
 from pyglet import gl
 from shapely.geometry import Point, Polygon

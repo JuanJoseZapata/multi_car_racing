@@ -645,19 +645,19 @@ class parallel_env(ParallelEnv, EzPickle):
                 if self.penalties:
                     # Penalize car for driving off road
                     if distance_to_tiles.min() > 6:
-                        self.reward[car_id] -= 0.2
+                        self.reward[car_id] -= 0.5
 
                     # Penalize car if angle difference is large
-                    if angle_diff > 0.5:
-                        self.reward[car_id] -= 0.2
+                    # if angle_diff > 0.5:
+                    #     self.reward[car_id] -= 0.2
 
                     # Penalize the car once for touching the grass
                     if on_grass and not prev_on_grass[car_id]:
-                        self.reward[car_id] -= 5
+                        self.reward[car_id] -= 10
 
                     # Penalize car for driving slowly
-                    if self.speed[car_id] < 40:
-                        self.reward[car_id] -= 0.3
+                    # if self.speed[car_id] < 40:
+                    #     self.reward[car_id] -= 0.3
 
                 #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
 

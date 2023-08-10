@@ -22,7 +22,7 @@ from shapely.geometry import Point, Polygon
 from pettingzoo import ParallelEnv
 from pettingzoo.utils import parallel_to_aec, wrappers
 
-from formula1 import *
+from .formula1 import *
 
 import cv2
 

@@ -8,7 +8,7 @@ import sys
 import pickle
 import os
 
-from racetrack import RaceTrack
+from .racetrack import RaceTrack
 
 # ====== Racetracks ======
 

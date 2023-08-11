@@ -659,11 +659,11 @@ class parallel_env(ParallelEnv, EzPickle):
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
-                if self.time_on_grass[car_id] > 1000 or self.elapsed_time > self.f1_track.max_episode_steps:
+                if self.time_on_grass[car_id] > 500 or self.elapsed_time > self.f1_track.max_episode_steps:
                     done = True
                 # Terminate the episode if the time limit is reached and
                 # the car has completed at least 80% of the track
-                if self.percent_completed[car_id] > 0.8 and self.elapsed_time > 2000:
+                if self.percent_completed[car_id] > 0.8 and self.elapsed_time > 3000:
                     done = True
 
         # Calculate step reward

@@ -83,11 +83,13 @@ ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
 
 
 TRACK_DETAIL_STEP = 21/SCALE  # Default 21
-TRACK_TURN_RATE = 0.31  # Default 0.31
+TRACK_TURN_RATE = 0.51  # Default 0.31
 TRACK_WIDTH = 40/SCALE  # Default 40
 BORDER = 8/SCALE  # Default 8
 BORDER_MIN_COUNT = 4  # Default 4
-CHECKPOINTS = 12  # Default 12
+CHECKPOINTS = 32  # Default 12
+ANGLE_JITTER = np.pi/2  # Default np.pi/2
+print(ANGLE_JITTER)
 
 ROAD_FRICTION = 1.0  # Default 1.0
 DOMAIN_RANDOMIZE = False  # Default False
@@ -646,6 +648,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 else:
                     self.driving_backward[car_id] = False
 
+                grass_penalty = False
                 # Penalties
                 if self.penalties:
                     # Penalize car for driving off road
@@ -658,7 +661,8 @@ class parallel_env(ParallelEnv, EzPickle):
 
                     # Penalize the car once for touching the grass
                     if on_grass and not prev_on_grass[car_id]:
-                        self.reward[car_id] -= 10
+                        self.step_reward[car_id] = -100
+                        grass_penalty = True
 
                     # Penalize car for driving slowly
                     # if self.speed[car_id] < 40:
@@ -689,7 +693,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
-                if self.time_on_grass[car_id] > 500 or self.elapsed_time > 3500:
+                if self.time_on_grass[car_id] > 300 or self.elapsed_time > 3500:
                     done = True
                 # Terminate the episode if the time limit is reached and
                 # the car has completed at least 80% of the track
@@ -697,7 +701,8 @@ class parallel_env(ParallelEnv, EzPickle):
                     done = True
 
         # Calculate step reward
-        step_reward = self.reward - self.prev_reward
+        if not grass_penalty:
+            step_reward = self.reward - self.prev_reward
         self.prev_reward = self.reward.copy()
 
         if self.render_mode == "human":
@@ -940,7 +945,7 @@ if __name__=="__main__":
 
     env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
                        backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space,
-                       domain_randomize=DOMAIN_RANDOMIZE)
+                       domain_randomize=DOMAIN_RANDOMIZE, angle_jitter=ANGLE_JITTER)
     env.render("human")
     for viewer in env.viewer:
         viewer.window.on_key_press = key_press

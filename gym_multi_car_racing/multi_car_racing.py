@@ -89,7 +89,6 @@ BORDER = 8/SCALE  # Default 8
 BORDER_MIN_COUNT = 4  # Default 4
 CHECKPOINTS = 32  # Default 12
 ANGLE_JITTER = np.pi/2  # Default np.pi/2
-print(ANGLE_JITTER)
 
 ROAD_FRICTION = 1.0  # Default 1.0
 DOMAIN_RANDOMIZE = False  # Default False
@@ -697,7 +696,7 @@ class parallel_env(ParallelEnv, EzPickle):
                     done = True
                 # Terminate the episode if the time limit is reached and
                 # the car has completed at least 80% of the track
-                if self.percent_completed[car_id] > 0.8 and self.elapsed_time > 2000:
+                if self.percent_completed[car_id] > 0.8 and self.elapsed_time > 3000:
                     done = True
 
         # Calculate step reward

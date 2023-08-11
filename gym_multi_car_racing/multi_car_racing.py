@@ -191,7 +191,7 @@ class parallel_env(ParallelEnv, EzPickle):
                  use_ego_color=False, render_mode="state_pixels",
                  discrete_action_space=False, grayscale=False,
                  percent_complete=0.95, domain_randomize=False,
-                 penalties=False):
+                 penalties=False, angle_jitter=0):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -224,6 +224,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.percent_complete = percent_complete  # Percentage of track completion required to finish episode
         self.domain_randomize = domain_randomize  # Whether to randomize the background and grass colors
         self.penalties = penalties  # Whether to add penalties for driving backwards and driving on grass
+        self.angle_jitter = angle_jitter  # Random angle jitter for starting position of cars
         self._init_colors()
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
@@ -523,6 +524,10 @@ class parallel_env(ParallelEnv, EzPickle):
             if self.episode_direction == 'CW':  # CW direction indicates reversed
                 angle -= np.pi  # Flip direction is either 0 or pi
 
+            if self.angle_jitter != 0:
+                # Add random angle perturbation
+                angle += np.random.uniform(-self.angle_jitter, self.angle_jitter)
+
             # Compute offset angle (normal to angle of track)
             norm_theta = angle - np.pi/2
 
@@ -684,7 +689,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
-                if self.time_on_grass[car_id] > 1000 or self.elapsed_time > 3500:
+                if self.time_on_grass[car_id] > 500 or self.elapsed_time > 3500:
                     done = True
                 # Terminate the episode if the time limit is reached and
                 # the car has completed at least 80% of the track

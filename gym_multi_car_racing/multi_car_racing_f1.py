@@ -198,8 +198,7 @@ class parallel_env(ParallelEnv, EzPickle):
                  use_random_direction=False, backwards_flag=True, h_ratio=0.25,
                  use_ego_color=False, render_mode="state_pixels",
                  discrete_action_space=False, grayscale=False,
-                 percent_complete=0.95, domain_randomize=False,
-                 penalties=False):
+                 percent_complete=0.95, domain_randomize=False):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -231,7 +230,6 @@ class parallel_env(ParallelEnv, EzPickle):
         self.grayscale = grayscale
         self.percent_complete = percent_complete  # Percentage of track completion required to finish episode
         self.domain_randomize = domain_randomize  # Whether to randomize the background and grass colors
-        self.penalties = penalties  # Whether to add penalties for driving backwards and driving on grass
         self.f1_track = track
         self._init_colors()
 
@@ -449,7 +447,6 @@ class parallel_env(ParallelEnv, EzPickle):
         self.t = 0.0
         self.road_poly = []
         self.agents = self.possible_agents[:]
-        self.time_on_grass = np.zeros(self.n_agents)
         self.elapsed_time = 0
         self.percent_completed = np.zeros(self.n_agents)
         self.speed = np.zeros(self.n_agents)
@@ -558,8 +555,6 @@ class parallel_env(ParallelEnv, EzPickle):
             # NOTE(IG): Probably not relevant. Seems not to be used anywhere. Commented it out.
             # self.cars[0].fuel_spent = 0.0
 
-            prev_on_grass = self.driving_on_grass.copy()
-
             for car_id, car in enumerate(self.cars):  # Enumerate through cars
 
                 # Get car speed
@@ -616,33 +611,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 else:
                     self.driving_backward[car_id] = False
 
-                # Penalties
-                if self.penalties:
-                    # Penalize car for driving off road
-                    if distance_to_tiles.min() > 6:
-                        self.reward[car_id] -= 0.2
-
-                    # Penalize car if angle difference is large
-                    if angle_diff > 0.5:
-                        self.reward[car_id] -= 0.2
-
-                    # Penalize the car once for touching the grass
-                    if on_grass and not prev_on_grass[car_id]:
-                        self.reward[car_id] -= 5
-
-                    # Penalize car for driving slowly
-                    if self.speed[car_id] < 40:
-                        self.reward[car_id] -= 0.3
-
                 #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
-
-                # Calculate time spent on grass
-                if on_grass:
-                    self.time_on_grass[car_id] += 1
-                else:
-                    self.time_on_grass[car_id] = 0
-
-                self.percent_completed[car_id] = self.tile_visited_count[car_id] / len(self.track)
 
             # If all tiles were visited
             # if len(self.track) in self.tile_visited_count:
@@ -659,7 +628,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
-                if self.time_on_grass[car_id] > 500 or self.elapsed_time > self.f1_track.max_episode_steps:
+                if self.elapsed_time > self.f1_track.max_episode_steps:
                     done = True
                 # Terminate the episode if the time limit is reached and
                 # the car has completed at least 80% of the track

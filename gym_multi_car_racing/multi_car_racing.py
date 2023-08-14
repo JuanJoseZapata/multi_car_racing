@@ -83,11 +83,11 @@ ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
 
 
 TRACK_DETAIL_STEP = 21/SCALE  # Default 21
-TRACK_TURN_RATE = 0.51  # Default 0.31
+TRACK_TURN_RATE = 0.31  # Default 0.31
 TRACK_WIDTH = 40/SCALE  # Default 40
 BORDER = 8/SCALE  # Default 8
 BORDER_MIN_COUNT = 4  # Default 4
-CHECKPOINTS = 32  # Default 12
+CHECKPOINTS = 12  # Default 12
 ANGLE_JITTER = np.pi/2  # Default np.pi/2
 
 ROAD_FRICTION = 1.0  # Default 1.0
@@ -692,11 +692,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
-                if self.time_on_grass[car_id] > 300 or self.elapsed_time > 3000:
-                    done = True
-                # Terminate the episode if the time limit is reached and
-                # the car has completed at least 80% of the track
-                if self.percent_completed[car_id] > 0.8 and self.elapsed_time > 3000:
+                if self.time_on_grass[car_id] > 300 or self.elapsed_time > 1000:
                     done = True
 
         # Calculate step reward

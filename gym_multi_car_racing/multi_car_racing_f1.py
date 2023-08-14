@@ -642,7 +642,7 @@ class parallel_env(ParallelEnv, EzPickle):
         if self.render_mode == "human":
             self.render(self.render_mode)
 
-        print("% completed:", round(self.percent_completed[0],4), "Steps:", self.elapsed_time, "         ", end="\r")
+        print("Reward:", np.round(self.reward), "Steps:", self.elapsed_time, "         ", end="\r")
 
         # Convert step_reward to a dictionary
         step_reward = {car_id: step_reward[i] for i, car_id in enumerate(self.agents)}

@@ -198,7 +198,7 @@ class parallel_env(ParallelEnv, EzPickle):
                  use_random_direction=False, backwards_flag=True, h_ratio=0.25,
                  use_ego_color=False, render_mode="state_pixels",
                  discrete_action_space=False, grayscale=False,
-                 percent_complete=0.95, domain_randomize=False):
+                 domain_randomize=False):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -228,7 +228,6 @@ class parallel_env(ParallelEnv, EzPickle):
         self.use_ego_color = use_ego_color  # Whether to make ego car always render as the same color
         self.discrete_action_space = discrete_action_space
         self.grayscale = grayscale
-        self.percent_complete = percent_complete  # Percentage of track completion required to finish episode
         self.domain_randomize = domain_randomize  # Whether to randomize the background and grass colors
         self.f1_track = track
         self._init_colors()
@@ -448,7 +447,6 @@ class parallel_env(ParallelEnv, EzPickle):
         self.road_poly = []
         self.agents = self.possible_agents[:]
         self.elapsed_time = 0
-        self.percent_completed = np.zeros(self.n_agents)
         self.speed = np.zeros(self.n_agents)
         self.color = [(0, 255, 0), (0, 255, 0)]
 
@@ -614,11 +612,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
 
             # If all tiles were visited
-            # if len(self.track) in self.tile_visited_count:
-            #     done = True
-
-            # If percent of track completed is greater than given threshold
-            if self.percent_completed[car_id] > self.percent_complete:
+            if len(self.track) in self.tile_visited_count:
                 done = True
 
             # Terminate the episode if a car leaves the field, spends too much
@@ -629,10 +623,6 @@ class parallel_env(ParallelEnv, EzPickle):
                     done = True
                     step_reward[car_id] = -100
                 if self.elapsed_time > self.f1_track.max_episode_steps:
-                    done = True
-                # Terminate the episode if the time limit is reached and
-                # the car has completed at least 80% of the track
-                if self.percent_completed[car_id] > 0.8 and self.elapsed_time > 3000:
                     done = True
 
         # Calculate step reward

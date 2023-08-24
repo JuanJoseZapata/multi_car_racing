@@ -25,8 +25,6 @@ from pettingzoo.utils import parallel_to_aec, wrappers
 import cv2
 
 
-dict_obs_space = False
-
 # Limits for removing the green background (grass)
 lower_green = np.array([25, 52, 72])
 upper_green = np.array([102, 255, 255])
@@ -88,7 +86,7 @@ TRACK_WIDTH = 40/SCALE  # Default 40
 BORDER = 8/SCALE  # Default 8
 BORDER_MIN_COUNT = 4  # Default 4
 CHECKPOINTS = 12  # Default 12
-ANGLE_JITTER = np.pi/2  # Default np.pi/2
+ANGLE_JITTER = 0  # Default np.pi/2
 
 ROAD_FRICTION = 1.0  # Default 1.0
 DOMAIN_RANDOMIZE = False  # Default False
@@ -238,9 +236,10 @@ class parallel_env(ParallelEnv, EzPickle):
         
         # Shape of one frame
         self.frame_shape = (84, 84, 1) if self.grayscale else (84, 84, 3)
-        high = 1
+        high = 255
         dtype = np.uint8
 
+        # Observation space
         obs_space = spaces.Box(low=0, high=high, shape=self.frame_shape, dtype=dtype)
         self.observation_spaces = dict(zip(self.possible_agents,
                                            [obs_space]*self.n_agents))
@@ -678,8 +677,8 @@ class parallel_env(ParallelEnv, EzPickle):
                 self.percent_completed[car_id] = self.tile_visited_count[car_id] / len(self.track)
 
             # If all tiles were visited
-            # if len(self.track) in self.tile_visited_count:
-            #     done = True
+            if len(self.track) in self.tile_visited_count:
+                done = True
 
             # If percent of track completed is greater than given threshold
             if self.percent_completed[car_id] > self.percent_complete:
@@ -703,18 +702,11 @@ class parallel_env(ParallelEnv, EzPickle):
         if self.render_mode == "human":
             self.render(self.render_mode)
 
-        # Convert step_reward to a dictionary
+        # Convert step_reward, observations, terminations, truncations, and infos to dictionaries
         step_reward = {car_id: step_reward[i] for i, car_id in enumerate(self.agents)}
-
-        if dict_obs_space:
-            observations = {car_id: {"observation": preprocess(self.state[i], self.grayscale),
-                                    "speed": self.speed[i]/100.} for  i, car_id in enumerate(self.agents)}
-        else:
-            observations = {car_id: preprocess(self.state[i], self.grayscale) for i, car_id in enumerate(self.agents)}
-
+        observations = {car_id: preprocess(self.state[i], self.grayscale) for i, car_id in enumerate(self.agents)}
         terminations = {car_id: done for car_id in self.agents}
         truncations = {car_id: done for car_id in self.agents}
-
         infos = {car_id: {} for car_id in self.agents}
 
         if done and self.verbose == 1:

@@ -551,7 +551,7 @@ class parallel_env(ParallelEnv, EzPickle):
         obs = self.render("state_pixels")
         observations = {agent: preprocess(obs[i], self.grayscale) for i, agent in enumerate(self.agents)}
 
-        infos = {agent: {} for agent in self.agents}
+        infos = {car_id: {f"episode": {"r": self.reward[i], "l": self.elapsed_time}} for i, car_id in enumerate(self.agents)}
 
         return observations, infos
 
@@ -707,7 +707,7 @@ class parallel_env(ParallelEnv, EzPickle):
         observations = {car_id: preprocess(self.state[i], self.grayscale) for i, car_id in enumerate(self.agents)}
         terminations = {car_id: done for car_id in self.agents}
         truncations = {car_id: done for car_id in self.agents}
-        infos = {car_id: {} for car_id in self.agents}
+        infos = {car_id: {f"episode": {"r": self.reward[i], "l": self.elapsed_time}} for i, car_id in enumerate(self.agents)}            
 
         if done and self.verbose == 1:
             print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}\n")

@@ -691,7 +691,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                     done = True
                     step_reward[car_id] = -100
-                if self.time_on_grass[car_id] > 300 or self.elapsed_time > 1000:
+                if self.elapsed_time > 1000:  # self.time_on_grass[car_id] > 300
                     done = True
 
         # Calculate step reward

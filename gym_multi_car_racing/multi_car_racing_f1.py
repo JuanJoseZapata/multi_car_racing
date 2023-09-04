@@ -92,8 +92,7 @@ BORDER_MIN_COUNT = 4  # Default 4
 
 ROAD_FRICTION = 1.0  # Default 1.0
 DOMAIN_RANDOMIZE = False  # Default False
-TRACK = Belgium
-PLAYFIELD   = TRACK.bounds/SCALE # Game over boundary
+TRACK = "Belgium"
 
 ROAD_COLOR = [0.4, 0.4, 0.4]
 
@@ -110,6 +109,33 @@ LATERAL_SPACING = 3  # Starting side distance between pairs of cars
 # Penalizing backwards driving
 BACKWARD_THRESHOLD = np.pi/2
 K_BACKWARD = 0  # Penalty weight: backwards_penalty = K_BACKWARD * angle_diff  (if angle_diff > BACKWARD_THRESHOLD)
+
+def get_track(track_name):
+    tracks = {"Australia": Australia,
+              "Austria": Austria,
+              "Bahrain": Bahrain,
+              "Belgium": Belgium,
+              "Brazil": Brazil,
+              "China": China,
+              "France": France,
+              "Germany": Germany,
+              "Hungary": Hungary,
+              "Italy": Italy,
+              "Malaysia": Malaysia,
+              "Monaco": Monaco,
+              "Mexico": Mexico,
+              "Netherlands": Netherlands,
+              "Portugal": Portugal,
+              "Russia": Russia,
+              "Singapore": Singapore,
+              "Spain": Spain,
+              "UK": UK,
+              "USA": USA}
+    global PLAYFIELD
+    PLAYFIELD = tracks[track_name].bounds/SCALE # Game over boundary
+    
+    return tracks[track_name]
+
 
 class FrictionDetector(contactListener):
     def __init__(self, env):
@@ -229,7 +255,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.discrete_action_space = discrete_action_space
         self.grayscale = grayscale
         self.domain_randomize = domain_randomize  # Whether to randomize the background and grass colors
-        self.f1_track = track
+        self.f1_track = get_track(track)  # Get track from formula1.py
         self._init_colors()
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)

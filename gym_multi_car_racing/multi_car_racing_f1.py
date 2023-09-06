@@ -300,11 +300,12 @@ class parallel_env(ParallelEnv, EzPickle):
         if not self.road:
             return
         for t in self.road:
+            t.userData = t.userData['tile']
             self.world.DestroyBody(t)
         self.road = []
-
         for car in self.cars:
             car.destroy()
+        self.cars = [None] * self.n_agents
 
     def _init_colors(self):
         if self.domain_randomize:

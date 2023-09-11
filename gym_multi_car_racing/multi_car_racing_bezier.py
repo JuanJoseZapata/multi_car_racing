@@ -328,7 +328,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
         # Create random bezier curve
         track = []
-        self.road = []
+        self.road = [] 
 
         if control_points is not None:
             a = np.array(control_points)
@@ -340,7 +340,7 @@ class parallel_env(ParallelEnv, EzPickle):
             self.track_data = a
 
         self.loaded_track = None
-
+        
         if self.loaded_track is not None:
             self.loaded_track = np.array(self.loaded_track)
             x, y = self.loaded_track[:,0], self.loaded_track[:,1]
@@ -545,6 +545,8 @@ class parallel_env(ParallelEnv, EzPickle):
             beta0, x0, y0 = self.track[int(car_id*8)][1:4]
             x0 -= self.x_offset
             y0 -= self.y_offset
+            if self.episode_direction == 'CW':  # CW direction indicates reversed
+                beta0 -= np.pi  # Flip direction is either 0 or pi
 
             # Create car at location with given angle
             self.cars[car_id] = car_dynamics.Car(self.world, beta0, x0, y0) # angle, new_x, new_y
@@ -717,7 +719,7 @@ class parallel_env(ParallelEnv, EzPickle):
         infos = {car_id: {f"episode": {"r": self.reward[i], "l": self.elapsed_time}} for i, car_id in enumerate(self.agents)}            
 
         if done and self.verbose == 1:
-            print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}\n")
+            print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}")
 
         # If no actions are passed
         if actions is None:

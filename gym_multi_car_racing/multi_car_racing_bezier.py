@@ -23,6 +23,7 @@ from pettingzoo import ParallelEnv
 from pettingzoo.utils import parallel_to_aec, wrappers
 
 import cv2
+
 try:
     from . import bezier
 except ImportError:
@@ -79,7 +80,7 @@ SCALE       = 6.0        # Track scale (default = 6.0)
 TRACK_RAD   = 900/SCALE  # Track is heavily morphed circle with this radius (default = 900)
 PLAYFIELD   = 2000/SCALE # Game over boundary
 FPS         = 50        # Frames per second
-ZOOM        = 0.17        # Camera zoom (default = 2.7)
+ZOOM        = 2.7        # Camera zoom (default = 2.7)
 ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
 
 
@@ -339,8 +340,6 @@ class parallel_env(ParallelEnv, EzPickle):
             x, y, _ = bezier.get_bezier_curve(a=a, rad=0.2, edgy=0.2, numpoints=40)
             self.track_data = a
 
-        self.loaded_track = None
-        
         if self.loaded_track is not None:
             self.loaded_track = np.array(self.loaded_track)
             x, y = self.loaded_track[:,0], self.loaded_track[:,1]
@@ -543,6 +542,7 @@ class parallel_env(ParallelEnv, EzPickle):
             #       f"orientation {angle}")
 
             beta0, x0, y0 = self.track[int(car_id*8)][1:4]
+            beta0 -= np.pi
             x0 -= self.x_offset
             y0 -= self.y_offset
             if self.episode_direction == 'CW':  # CW direction indicates reversed

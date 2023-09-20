@@ -1,3 +1,4 @@
+import os
 import sys, math
 import numpy as np
 
@@ -8,9 +9,7 @@ import gym.envs.box2d.car_dynamics as car_dynamics
 from gymnasium import spaces
 from gymnasium.utils import colorize, seeding, EzPickle
 
-try:
-    from pyglet.window import key
-except Exception as e:
+if not 'DISPLAY' in os.environ.keys():
     import pyvirtualdisplay
     # Creates a virtual display for OpenAI gym
     pyvirtualdisplay.Display(visible=0, size=(1400, 900)).start()
@@ -28,10 +27,6 @@ try:
     from . import bezier
 except ImportError:
     import bezier
-
-# Limits for removing the green background (grass)
-lower_green = np.array([25, 52, 72])
-upper_green = np.array([102, 255, 255])
 
 
 def preprocess(img, grayscale):

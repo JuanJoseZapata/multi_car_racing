@@ -536,10 +536,27 @@ class parallel_env(ParallelEnv, EzPickle):
             # print(f"Spawning car {car_id} at {new_x:.0f}x{new_y:.0f} with "
             #       f"orientation {angle}")
 
-            beta0, x0, y0 = self.track[int(car_id*8)][1:4]
+            beta0, x0, y0 = self.track[0][1:4]
             beta0 -= np.pi
             x0 -= self.x_offset
             y0 -= self.y_offset
+
+            # Create second car in front of first car (20 units ahead)
+            if car_id == 1:
+                distance_between_cars = 0
+                i = 0
+                while distance_between_cars < 20:
+                    beta1, x1, y1 = self.track[i][1:4]
+                    beta1 -= np.pi
+                    x1 -= self.x_offset
+                    y1 -= self.y_offset
+                    distance_between_cars = np.linalg.norm(np.array([x0, y0]) - np.array([x1, y1]))
+                    i += 1
+                beta0, x0, y0 = self.track[i][1:4]
+                beta0 -= np.pi
+                x0 -= self.x_offset
+                y0 -= self.y_offset
+
             if self.episode_direction == 'CW':  # CW direction indicates reversed
                 beta0 -= np.pi  # Flip direction is either 0 or pi
 
@@ -611,72 +628,26 @@ class parallel_env(ParallelEnv, EzPickle):
                 car_pos_as_point = Point((float(car_pos[:, 0]),
                                           float(car_pos[:, 1])))
 
-                # Predict car position in next 100 steps
-                next_pos = car_pos + 10 * vel/FPS
-                next_pos_as_point = Point((float(next_pos[:, 0]),
-                                          float(next_pos[:, 1])))
-
-                # Compute closest point on track to car position (l2 norm)
-                distance_to_tiles = np.linalg.norm(
-                    car_pos - np.array(self.track)[:, 2:], ord=2, axis=1)
-                track_index = np.argmin(distance_to_tiles)
-
-                # Check if car is driving on grass by checking inside polygons
-                # on_grass = not np.array([car_pos_as_point.within(polygon)
-                #                    for polygon in self.road_poly_shapely]).any()
-                # self.driving_on_grass[car_id] = on_grass
-                on_grass = False
-
-                # Find track angle of closest point
-                desired_angle = self.track[track_index][1]
-
-                # If track direction reversed, reverse desired angle
-                if self.episode_direction == 'CW':  # CW direction indicates reversed
-                    desired_angle += np.pi
-
-                # Map angle to [0, 2pi] interval
-                desired_angle = (desired_angle + (2 * np.pi)) % (2 * np.pi)
-
-                # Compute smallest angle difference between desired and car
-                angle_diff = abs(desired_angle - car_angle)
-                if angle_diff > np.pi:
-                    angle_diff = abs(angle_diff - 2 * np.pi)
-
-                # If car is driving backward and not on grass, penalize car. The
-                # backwards flag is set even if it is driving on grass.
-                if angle_diff > BACKWARD_THRESHOLD:
-                    self.driving_backward[car_id] = True
-                    step_reward[car_id] -= K_BACKWARD * angle_diff
-                else:
-                    self.driving_backward[car_id] = False
-
                 grass_penalty = False
                 # Penalties
                 if self.penalties:
-                    # Penalize car for driving off road
-                    if distance_to_tiles.min() > 6:
-                        self.reward[car_id] -= 0.5
-
-                    # Penalize car if angle difference is large
-                    # if angle_diff > 0.5:
-                    #     self.reward[car_id] -= 0.2
 
                     # Penalize the car once for touching the grass
-                    if on_grass and not prev_on_grass[car_id]:
-                        step_reward[car_id] = -100
-                        grass_penalty = True
+                    # if self.driving_on_grass[car_id] and not prev_on_grass[car_id]:
+                    #     step_reward[car_id] = -100
+                    #     grass_penalty = True
 
                     # Penalize car for driving slowly
-                    # if self.speed[car_id] < 40:
-                    #     self.reward[car_id] -= 0.3
+                    if self.speed[car_id] < 40:
+                        self.reward[car_id] -= 0.3
 
                 #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
 
                 # Calculate time spent on grass
-                if on_grass:
-                    self.time_on_grass[car_id] += 1
-                else:
-                    self.time_on_grass[car_id] = 0
+                # if self.driving_on_grass[car_id]:
+                #     self.time_on_grass[car_id] += 1
+                # else:
+                #     self.time_on_grass[car_id] = 0
 
                 self.percent_completed[car_id] = self.tile_visited_count[car_id] / len(self.track)
 
@@ -702,6 +673,26 @@ class parallel_env(ParallelEnv, EzPickle):
         if not grass_penalty:
             step_reward = self.reward - self.prev_reward
         self.prev_reward = self.reward.copy()
+
+        # For multi-car environment, reward car 0 if it gets closer to car 1; reward car 1 if it
+        # gets further away from car 0. If car 0 gets too close to car 1, reward car 0. If car 1
+        # gets too far from car 0, reward car 1.
+        if self.n_agents > 1:
+            for car_id in range(self.n_agents):
+                if car_id == 0:
+                    distance_between_cars = np.linalg.norm(self.cars[0].hull.position - self.cars[1].hull.position)
+                    step_reward[car_id] += np.clip(1/distance_between_cars, 0, 0.2)
+                elif car_id == 1:
+                    distance_between_cars = np.linalg.norm(self.cars[0].hull.position - self.cars[1].hull.position)
+                    step_reward[car_id] += np.clip(-1/(distance_between_cars - 50), 0, 0.2)
+            if distance_between_cars < 6:
+                step_reward[0] = 1
+                step_reward[0] = -10
+                done = True
+            if distance_between_cars > 60:
+                step_reward[1] = 1
+                step_reward[0] = -10
+                done = True
 
         if self.render_mode == "human":
             self.render(self.render_mode)

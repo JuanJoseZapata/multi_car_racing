@@ -685,13 +685,15 @@ class parallel_env(ParallelEnv, EzPickle):
                 elif car_id == 1:
                     distance_between_cars = np.linalg.norm(self.cars[0].hull.position - self.cars[1].hull.position)
                     step_reward[car_id] += np.clip(-1/(distance_between_cars - 50), 0, 0.2)
-            if distance_between_cars < 6:
-                step_reward[0] = 1
+                
+            diff_percent_completed = self.percent_completed[1] - self.percent_completed[0]
+            if diff_percent_completed > 0.03:
+                step_reward[1] = 10
                 step_reward[0] = -10
                 done = True
-            if distance_between_cars > 60:
-                step_reward[1] = 1
-                step_reward[0] = -10
+            if diff_percent_completed < -0.03:
+                step_reward[0] = 10
+                step_reward[1] = -10
                 done = True
 
         if self.render_mode == "human":

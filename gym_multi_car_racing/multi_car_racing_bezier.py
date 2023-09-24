@@ -678,15 +678,15 @@ class parallel_env(ParallelEnv, EzPickle):
         # gets further away from car 0. If car 0 gets too close to car 1, reward car 0. If car 1
         # gets too far from car 0, reward car 1.
         if self.n_agents > 1:
-            for car_id in range(self.n_agents):
-                if car_id == 0:
-                    distance_between_cars = np.linalg.norm(self.cars[0].hull.position - self.cars[1].hull.position)
-                    step_reward[car_id] += np.clip(1/distance_between_cars, 0, 0.2)
-                elif car_id == 1:
-                    distance_between_cars = np.linalg.norm(self.cars[0].hull.position - self.cars[1].hull.position)
-                    step_reward[car_id] += np.clip(-1/(distance_between_cars - 50), 0, 0.2)
-                
             diff_percent_completed = self.percent_completed[1] - self.percent_completed[0]
+            for car_id in range(self.n_agents):
+                
+                if car_id == 0:
+                    step_reward[car_id] -= diff_percent_completed * 10
+                elif car_id == 1:
+                    step_reward[car_id] += diff_percent_completed * 10
+
+            print("Reward car 0: ", step_reward[0], "Reward car 1: ", step_reward[1], "Diff percent completed: ", diff_percent_completed, end="\r")
             if diff_percent_completed > 0.03:
                 step_reward[1] = 10
                 step_reward[0] = -10

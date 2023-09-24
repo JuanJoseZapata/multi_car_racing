@@ -682,15 +682,15 @@ class parallel_env(ParallelEnv, EzPickle):
             for car_id in range(self.n_agents):
                 
                 if car_id == 0:
-                    step_reward[car_id] -= diff_percent_completed * 10
+                    step_reward[car_id] -= np.clip(diff_percent_completed * 10, -0.2, 0.2)
                 elif car_id == 1:
-                    step_reward[car_id] += diff_percent_completed * 10
+                    step_reward[car_id] += np.clip(diff_percent_completed * 10, -0.2, 0.2)
 
-            if diff_percent_completed > 0.03:
+            if diff_percent_completed > 0.05:
                 step_reward[1] = 10
                 step_reward[0] = -10
                 done = True
-            if diff_percent_completed < -0.03:
+            if diff_percent_completed < -0.05:
                 step_reward[0] = 10
                 step_reward[1] = -10
                 done = True

@@ -686,7 +686,6 @@ class parallel_env(ParallelEnv, EzPickle):
                 elif car_id == 1:
                     step_reward[car_id] += diff_percent_completed * 10
 
-            print("Reward car 0: ", step_reward[0], "Reward car 1: ", step_reward[1], "Diff percent completed: ", diff_percent_completed, end="\r")
             if diff_percent_completed > 0.03:
                 step_reward[1] = 10
                 step_reward[0] = -10

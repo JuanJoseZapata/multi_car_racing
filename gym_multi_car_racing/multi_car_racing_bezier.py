@@ -542,7 +542,7 @@ class parallel_env(ParallelEnv, EzPickle):
             y0 -= self.y_offset
 
             # Create second car in front of first car (20 units ahead)
-            if car_id == 1:
+            if self.car_order[car_id] == 0:
                 distance_between_cars = 0
                 i = 0
                 while distance_between_cars < 20:
@@ -678,21 +678,25 @@ class parallel_env(ParallelEnv, EzPickle):
         # gets further away from car 0. If car 0 gets too close to car 1, reward car 0. If car 1
         # gets too far from car 0, reward car 1.
         if self.n_agents > 1:
-            diff_percent_completed = self.percent_completed[1] - self.percent_completed[0]
+            
+            car_front = 0 if self.car_order[0] == 0 else 1
+            car_back = 0 if self.car_order[0] == 1 else 1     
+
+            diff_percent_completed = self.percent_completed[car_front] - self.percent_completed[car_back]
             for car_id in range(self.n_agents):
                 
-                if car_id == 0:
+                if car_id == car_back:
                     step_reward[car_id] -= np.clip(diff_percent_completed * 10, -0.2, 0.2)
-                elif car_id == 1:
+                elif car_id == car_front:
                     step_reward[car_id] += np.clip(diff_percent_completed * 10, -0.2, 0.2)
 
-            if diff_percent_completed > 0.05:
-                step_reward[1] = 10
-                step_reward[0] = -10
+            if diff_percent_completed > 0.03:
+                step_reward[car_front] = 10
+                step_reward[car_back] = -10
                 done = True
-            if diff_percent_completed < -0.05:
-                step_reward[0] = 10
-                step_reward[1] = -10
+            if diff_percent_completed < -0.03:
+                step_reward[car_back] = 10
+                step_reward[car_front] = -10
                 done = True
 
         if self.render_mode == "human":

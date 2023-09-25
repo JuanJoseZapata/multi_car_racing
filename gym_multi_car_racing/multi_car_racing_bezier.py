@@ -636,20 +636,23 @@ class parallel_env(ParallelEnv, EzPickle):
 
                 grass_penalty = False
                 # Penalties
-                if self.penalties:
-
-                    # Check if car is driving on grass
+                if True or self.penalties:
+                    
+                    # Check if car is driving on grass and penalize
                     if distance_to_tiles[track_index] > self.track_width:
                         self.driving_on_grass[car_id] = True
+                        step_reward[car_id] -= 0.1
+                    else:
+                        self.driving_on_grass[car_id] = False
 
-                    # Penalize the car once for touching the grass
-                    if self.driving_on_grass[car_id] and not prev_on_grass[car_id]:
-                        step_reward[car_id] = -100
-                        grass_penalty = True
+                    # # Penalize the car once for touching the grass
+                    # if self.driving_on_grass[car_id] and not prev_on_grass[car_id]:
+                    #     step_reward[car_id] = -100
+                    #     grass_penalty = True
 
                     # Penalize car for driving slowly
                     if self.speed[car_id] < 40:
-                        self.reward[car_id] -= 0.3
+                        step_reward[car_id] -= 0.1
 
                 # Calculate time spent on grass
                 # if self.driving_on_grass[car_id]:

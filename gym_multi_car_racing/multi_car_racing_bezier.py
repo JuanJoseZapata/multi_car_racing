@@ -625,23 +625,31 @@ class parallel_env(ParallelEnv, EzPickle):
 
                 # Retrieve car position
                 car_pos = np.array(car.hull.position).reshape((1, 2))
+                car_pos += np.array([self.x_offset, self.y_offset])
                 car_pos_as_point = Point((float(car_pos[:, 0]),
                                           float(car_pos[:, 1])))
+                
+                # Compute closest point on track to car position (l2 norm)
+                distance_to_tiles = np.linalg.norm(
+                    car_pos - np.array(self.track)[:, 2:], ord=2, axis=1)
+                track_index = np.argmin(distance_to_tiles)
 
                 grass_penalty = False
                 # Penalties
                 if self.penalties:
 
+                    # Check if car is driving on grass
+                    if distance_to_tiles[track_index] > self.track_width:
+                        self.driving_on_grass[car_id] = True
+
                     # Penalize the car once for touching the grass
-                    # if self.driving_on_grass[car_id] and not prev_on_grass[car_id]:
-                    #     step_reward[car_id] = -100
-                    #     grass_penalty = True
+                    if self.driving_on_grass[car_id] and not prev_on_grass[car_id]:
+                        step_reward[car_id] = -100
+                        grass_penalty = True
 
                     # Penalize car for driving slowly
                     if self.speed[car_id] < 40:
                         self.reward[car_id] -= 0.3
-
-                #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
 
                 # Calculate time spent on grass
                 # if self.driving_on_grass[car_id]:
@@ -684,7 +692,6 @@ class parallel_env(ParallelEnv, EzPickle):
 
             # Distance between cars
             distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position) 
-            diff_percent_completed = self.percent_completed[car_front] - self.percent_completed[car_back]
 
             for car_id in range(self.n_agents):
                 if car_id == car_back and distance_cars < 30:

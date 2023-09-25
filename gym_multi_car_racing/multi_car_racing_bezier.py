@@ -680,23 +680,25 @@ class parallel_env(ParallelEnv, EzPickle):
         if self.n_agents > 1:
             
             car_front = 0 if self.car_order[0] == 0 else 1
-            car_back = 0 if self.car_order[0] == 1 else 1     
+            car_back = 0 if self.car_order[0] == 1 else 1   
 
+            # Distance between cars
+            distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position) 
             diff_percent_completed = self.percent_completed[car_front] - self.percent_completed[car_back]
-            for car_id in range(self.n_agents):
-                
-                if car_id == car_back:
-                    step_reward[car_id] -= np.clip(diff_percent_completed * 10, -0.2, 0.2)
-                elif car_id == car_front:
-                    step_reward[car_id] += np.clip(diff_percent_completed * 10, -0.2, 0.2)
 
-            if diff_percent_completed > 0.03:
-                step_reward[car_front] = 10
-                step_reward[car_back] = -10
+            for car_id in range(self.n_agents):
+                if car_id == car_back and distance_cars < 30:
+                    step_reward[car_id] += 1/distance_cars
+                elif car_id == car_front and distance_cars < 30:
+                    step_reward[car_id] -= 1/distance_cars
+
+            if distance_cars > 60:
+                step_reward[car_front] = 100
+                step_reward[car_back] = -100
                 done = True
-            if diff_percent_completed < -0.03:
-                step_reward[car_back] = 10
-                step_reward[car_front] = -10
+            if distance_cars < 6:
+                step_reward[car_back] = 100
+                step_reward[car_front] = -100
                 done = True
 
         if self.render_mode == "human":

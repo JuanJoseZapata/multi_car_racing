@@ -732,13 +732,13 @@ class parallel_env(ParallelEnv, EzPickle):
             for car_id in range(self.n_agents):
                 if car_id == car_back and distance_cars < 30:
                     step_reward[car_id] -= np.clip(diff_percent_completed * 5, -0.2, 0.2)
-                elif car_id == car_front and distance_cars < 30:
-                    step_reward[car_id] += np.clip(diff_percent_completed * 5, -0.2, 0.2)
+                # elif car_id == car_front and distance_cars < 30:
+                #     step_reward[car_id] += np.clip(diff_percent_completed * 5, -0.2, 0.2)
 
-            if diff_percent_completed > 0.03:
-                step_reward[car_front] = 10
-                step_reward[car_back] = -10
-                done = True
+            # if diff_percent_completed > 0.03:
+            #     step_reward[car_front] = 10
+            #     step_reward[car_back] = -10
+            #     done = True
             # Terminate the episode if the back car catches up to the front car
             if diff_percent_completed < -0.03:
                 step_reward[car_back] = 10

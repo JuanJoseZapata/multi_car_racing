@@ -718,25 +718,31 @@ class parallel_env(ParallelEnv, EzPickle):
         if self.n_agents > 1:
             
             car_front = 0 if self.car_order[0] == 0 else 1
-            car_back = 0 if self.car_order[0] == 1 else 1   
+            car_back = 0 if self.car_order[0] == 1 else 1
+            # Switch car order episode direction is clockwise
+            if self.episode_direction == 'CW':
+                car_front = 0 if self.car_order[0] == 1 else 1
+                car_back = 0 if self.car_order[0] == 0 else 1             
 
             # Distance between cars
             distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position) 
             diff_percent_completed = self.percent_completed[car_front] - self.percent_completed[car_back]
 
+            # Reward back car if it gets closer to front car
             for car_id in range(self.n_agents):
-                if car_id == car_back:
+                if car_id == car_back and distance_cars < 30:
                     step_reward[car_id] -= np.clip(diff_percent_completed * 5, -0.2, 0.2)
-                elif car_id == car_front:
+                elif car_id == car_front and distance_cars < 30:
                     step_reward[car_id] += np.clip(diff_percent_completed * 5, -0.2, 0.2)
 
             if diff_percent_completed > 0.03:
-                step_reward[car_front] = 100
-                step_reward[car_back] = -100
+                step_reward[car_front] = 10
+                step_reward[car_back] = -10
                 done = True
+            # Terminate the episode if the back car catches up to the front car
             if diff_percent_completed < -0.03:
-                step_reward[car_back] = 100
-                step_reward[car_front] = -100
+                step_reward[car_back] = 10
+                step_reward[car_front] = -10
                 done = True
 
         if self.render_mode == "human":
@@ -970,7 +976,7 @@ if __name__=="__main__":
                 if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][2]: actions[car_id][1] = 0
                 if k==CAR_CONTROL_KEYS[i % len(CAR_CONTROL_KEYS)][3]: actions[car_id][2] = 0
 
-    env = parallel_env(n_agents=NUM_CARS, use_random_direction=False,
+    env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
                        backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space,
                        domain_randomize=DOMAIN_RANDOMIZE, angle_jitter=ANGLE_JITTER)
     env.render("human")

@@ -30,6 +30,9 @@ except ImportError:
 
 from scipy.interpolate import UnivariateSpline
 
+import warnings
+warnings.filterwarnings("error", category=UserWarning)
+
 
 def preprocess(img, grayscale):
     img = img[:84, 6:90, :] # CarRacing-v2-specific cropping

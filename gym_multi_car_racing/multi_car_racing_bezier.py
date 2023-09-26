@@ -28,6 +28,8 @@ try:
 except ImportError:
     import bezier
 
+from scipy.interpolate import UnivariateSpline
+
 
 def preprocess(img, grayscale):
     img = img[:84, 6:90, :] # CarRacing-v2-specific cropping
@@ -314,6 +316,20 @@ class parallel_env(ParallelEnv, EzPickle):
             idx = self.np_random.integers(3)
             self.grass_color[idx] += 20 / 255.
 
+    def fit_spline(self, points, num_points=200):
+        # Linear length along the line:
+        distance = np.cumsum( np.sqrt(np.sum( np.diff(points, axis=0)**2, axis=1 )) )
+        distance = np.insert(distance, 0, 0)/distance[-1]
+
+        # Build a list of the spline function, one for each dimension:
+        splines = [UnivariateSpline(distance, coords, k=5, s=10) for coords in points.T]
+
+        # Computed the spline for the asked distances:
+        alpha = np.linspace(0, 1, num_points)
+        points_fitted = np.vstack([spl(alpha) for spl in splines]).T
+
+        return points_fitted
+
     def _create_track(self, control_points=None, show_borders=None):
             return self._create_track_bezier(
                 control_points=control_points, 
@@ -334,6 +350,9 @@ class parallel_env(ParallelEnv, EzPickle):
             a = bezier.get_random_points(n=self.n_control_points, scale=self.playfield, np_random=self.np_random)
             x, y, _ = bezier.get_bezier_curve(a=a, rad=0.2, edgy=0.2, numpoints=40)
             self.track_data = a
+
+        xy_spline = self.fit_spline(np.array([x, y]).T, num_points=300)
+        x, y = xy_spline[:,0], xy_spline[:,1]
 
         if self.loaded_track is not None:
             self.loaded_track = np.array(self.loaded_track)
@@ -502,6 +521,7 @@ class parallel_env(ParallelEnv, EzPickle):
         (angle, pos_x, pos_y) = self.track[0][1:4]
         car_width = car_dynamics.SIZE * (car_dynamics.WHEEL_W * 2 \
             + (car_dynamics.WHEELPOS[1][0]-car_dynamics.WHEELPOS[1][0]))
+        
         for car_id in range(self.n_agents):
 
             # Specify line and lateral separation between cars
@@ -695,18 +715,19 @@ class parallel_env(ParallelEnv, EzPickle):
 
             # Distance between cars
             distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position) 
+            diff_percent_completed = self.percent_completed[car_front] - self.percent_completed[car_back]
 
             for car_id in range(self.n_agents):
-                if car_id == car_back and distance_cars < 30:
-                    step_reward[car_id] += 1/distance_cars
-                elif car_id == car_front and distance_cars < 30:
-                    step_reward[car_id] -= 1/distance_cars
+                if car_id == car_back:
+                    step_reward[car_id] -= np.clip(diff_percent_completed, -0.2, 0.2)
+                elif car_id == car_front:
+                    step_reward[car_id] += np.clip(diff_percent_completed, -0.2, 0.2)
 
-            if distance_cars > 60:
+            if diff_percent_completed > 0.03:
                 step_reward[car_front] = 100
                 step_reward[car_back] = -100
                 done = True
-            if distance_cars < 6:
+            if diff_percent_completed < -0.03:
                 step_reward[car_back] = 100
                 step_reward[car_front] = -100
                 done = True

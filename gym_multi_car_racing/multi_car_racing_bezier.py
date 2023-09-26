@@ -351,7 +351,7 @@ class parallel_env(ParallelEnv, EzPickle):
             x, y, _ = bezier.get_bezier_curve(a=a, rad=0.2, edgy=0.2, numpoints=40)
             self.track_data = a
 
-        xy_spline = self.fit_spline(np.array([x, y]).T, num_points=300)
+        xy_spline = self.fit_spline(np.array([x, y]).T, num_points=400)
         x, y = xy_spline[:,0], xy_spline[:,1]
 
         if self.loaded_track is not None:
@@ -719,9 +719,9 @@ class parallel_env(ParallelEnv, EzPickle):
 
             for car_id in range(self.n_agents):
                 if car_id == car_back:
-                    step_reward[car_id] -= np.clip(diff_percent_completed, -0.2, 0.2)
+                    step_reward[car_id] -= np.clip(diff_percent_completed * 5, -0.2, 0.2)
                 elif car_id == car_front:
-                    step_reward[car_id] += np.clip(diff_percent_completed, -0.2, 0.2)
+                    step_reward[car_id] += np.clip(diff_percent_completed * 5, -0.2, 0.2)
 
             if diff_percent_completed > 0.03:
                 step_reward[car_front] = 100

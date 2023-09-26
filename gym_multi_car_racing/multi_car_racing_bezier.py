@@ -351,8 +351,12 @@ class parallel_env(ParallelEnv, EzPickle):
             x, y, _ = bezier.get_bezier_curve(a=a, rad=0.2, edgy=0.2, numpoints=40)
             self.track_data = a
 
-        xy_spline = self.fit_spline(np.array([x, y]).T, num_points=400)
-        x, y = xy_spline[:,0], xy_spline[:,1]
+        try:
+            xy_spline = self.fit_spline(np.array([x, y]).T, num_points=400)
+            x, y = xy_spline[:,0], xy_spline[:,1]
+        except UserWarning:
+            print("Could not fit spline")
+            pass
 
         if self.loaded_track is not None:
             self.loaded_track = np.array(self.loaded_track)

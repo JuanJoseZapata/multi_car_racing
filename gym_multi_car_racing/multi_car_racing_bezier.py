@@ -497,7 +497,8 @@ class parallel_env(ParallelEnv, EzPickle):
         self.elapsed_time = 0
         self.percent_completed = np.zeros(self.n_agents)
         self.speed = np.zeros(self.n_agents)
-        self.color = [(0, 255, 0), (0, 255, 0)]
+        self.track_index = np.zeros(self.n_agents, dtype=int)
+        self.overtake_cooldown = 0
 
         if self.domain_randomize:
             randomize = True
@@ -659,14 +660,14 @@ class parallel_env(ParallelEnv, EzPickle):
                 # Compute closest point on track to car position (l2 norm)
                 distance_to_tiles = np.linalg.norm(
                     car_pos - np.array(self.track)[:, 2:], ord=2, axis=1)
-                track_index = np.argmin(distance_to_tiles)
+                self.track_index[car_id] = np.argmin(distance_to_tiles)
 
                 grass_penalty = False
                 # Penalties
                 if self.penalties:
                     
                     # Check if car is driving on grass and penalize
-                    if distance_to_tiles[track_index] > self.track_width:
+                    if distance_to_tiles[self.track_index] > self.track_width:
                         self.driving_on_grass[car_id] = True
                         step_reward[car_id] -= 0.1
                     else:
@@ -717,34 +718,32 @@ class parallel_env(ParallelEnv, EzPickle):
         # gets too far from car 0, reward car 1.
         if self.n_agents > 1:
             
-            car_front = 0 if self.car_order[0] == 0 else 1
-            car_back = 0 if self.car_order[0] == 1 else 1
-            # Switch car order episode direction is clockwise
-            if self.episode_direction == 'CW':
-                car_front = 0 if self.car_order[0] == 1 else 1
-                car_back = 0 if self.car_order[0] == 0 else 1             
+            if self.episode_direction == "CCW":
+                car_front = np.argmax(self.track_index)
+                car_back = np.argmin(self.track_index)
+            else:
+                car_front = np.argmin(self.track_index)
+                car_back = np.argmax(self.track_index)      
 
             # Distance between cars
             distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position) 
-            diff_percent_completed = self.percent_completed[car_front] - self.percent_completed[car_back]
 
-            # Reward back car if it gets closer to front car
             for car_id in range(self.n_agents):
-                if car_id == car_back and distance_cars < 30:
-                    step_reward[car_id] -= np.clip(diff_percent_completed * 5, -0.2, 0.2)
-                # elif car_id == car_front and distance_cars < 30:
-                #     step_reward[car_id] += np.clip(diff_percent_completed * 5, -0.2, 0.2)
+                # Reward back car if it gets closer to front car
+                if car_id == car_back and distance_cars < 50:
+                    step_reward[car_id] += np.clip(1/(distance_cars + 1e-3), 0, 0.2)
+                elif car_id == car_front and distance_cars < 50:
+                    step_reward[car_id] += np.clip(-1/(distance_cars - 50), 0, 0.2)
 
-            # if diff_percent_completed > 0.03:
-            #     step_reward[car_front] = 10
-            #     step_reward[car_back] = -10
-            #     done = True
-            # Terminate the episode if the back car catches up to the front car
-            if diff_percent_completed < -0.03:
-                step_reward[car_back] = 10
-                step_reward[car_front] = -10
-                done = True
-
+            # If back car catches up to front car, reward back car and penalize front car
+            # Add a cooldown period to prevent oscillations
+            if distance_cars < 7 and self.overtake_cooldown == 0:
+                step_reward[car_back] += 1
+                step_reward[car_front] -= 1
+                self.overtake_cooldown = 100
+            elif self.overtake_cooldown > 0:
+                self.overtake_cooldown -= 1
+            
         if self.render_mode == "human":
             self.render(self.render_mode)
 

@@ -732,14 +732,15 @@ class parallel_env(ParallelEnv, EzPickle):
                 # Reward back car if it gets closer to front car
                 if car_id == car_back and distance_cars < 50:
                     step_reward[car_id] += np.clip(1/(distance_cars + 1e-3), 0, 0.2)
+                # Reward front car if it gets further away from back car
                 elif car_id == car_front and distance_cars < 50:
                     step_reward[car_id] += np.clip(-1/(distance_cars - 50), 0, 0.2)
 
             # If back car catches up to front car, reward back car and penalize front car
             # Add a cooldown period to prevent oscillations
             if distance_cars < 7 and self.overtake_cooldown == 0:
-                step_reward[car_back] += 1
-                step_reward[car_front] -= 1
+                step_reward[car_back] += 10
+                step_reward[car_front] -= 10
                 self.overtake_cooldown = 100
             elif self.overtake_cooldown > 0:
                 self.overtake_cooldown -= 1

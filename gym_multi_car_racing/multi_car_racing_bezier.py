@@ -662,16 +662,17 @@ class parallel_env(ParallelEnv, EzPickle):
                     car_pos - np.array(self.track)[:, 2:], ord=2, axis=1)
                 self.track_index[car_id] = np.argmin(distance_to_tiles)
 
-                grass_penalty = False
+                # Check if car is driving on grass
+                if distance_to_tiles[self.track_index[car_id]] > self.track_width:
+                    self.driving_on_grass[car_id] = True
+                else:
+                    self.driving_on_grass[car_id] = False
+
                 # Penalties
                 if self.penalties:
-
-                    # Check if car is driving on grass and penalize
-                    if distance_to_tiles[self.track_index[car_id]] > self.track_width:
-                        self.driving_on_grass[car_id] = True
-                        step_reward[car_id] -= self.speed[car_id]**2 * 2.5e-5
-                    else:
-                        self.driving_on_grass[car_id] = False
+                    # Penalize car if it is driving on grass
+                    if self.driving_on_grass[car_id]:
+                        self.reward[car_id] -= self.speed[car_id]**2 * 2.5e-5            
 
                     # Penalize car for driving slowly
                     # if self.speed[car_id] < 10:
@@ -693,21 +694,6 @@ class parallel_env(ParallelEnv, EzPickle):
             if self.percent_completed[car_id] > self.percent_complete:
                 done = True
 
-            # Terminate the episode if a car leaves the field, spends too much
-            # time on grass or the time limit is reached
-            for car_id, car in enumerate(self.cars):
-                x, y = car.hull.position
-                if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
-                    done = True
-                    step_reward[car_id] = -100
-                if self.elapsed_time > 1000:  # self.time_on_grass[car_id] > 300
-                    done = True
-
-        # Calculate step reward
-        if not grass_penalty:
-            step_reward = self.reward - self.prev_reward
-        self.prev_reward = self.reward.copy()
-
         # For multi-car environment, reward car 0 if it gets closer to car 1; reward car 1 if it
         # gets further away from car 0. If car 0 gets too close to car 1, reward car 0. If car 1
         # gets too far from car 0, reward car 1.
@@ -722,28 +708,44 @@ class parallel_env(ParallelEnv, EzPickle):
 
             # Distance between cars
             distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position)
-            progress_difference = self.percent_completed[car_front] - self.percent_completed[car_back] 
+            progress_difference = np.abs(self.percent_completed[car_front] - self.percent_completed[car_back])
+
+            # Min and max values for distance and reward
+            distance_min = 7
+            distance_max = 50
+            rew_min = -0.05
+            rew_max = 0.05
+            delta_x = distance_max - distance_min
+            delta_r = rew_max - rew_min
 
             for car_id in range(self.n_agents):
                 # Reward back car if it gets closer to front car
                 if car_id == car_back and distance_cars < 50 and not self.driving_on_grass[car_id]:
-                    step_reward[car_id] += np.clip(1/(distance_cars + 1e-3), 0, 0.2)
+                    self.reward[car_id] += rew_max - (distance_cars - distance_min) * delta_r / delta_x
                 # Reward front car if it gets further away from back car
                 elif car_id == car_front and distance_cars < 50 and not self.driving_on_grass[car_id]:
-                    step_reward[car_id] += np.clip(-1/(distance_cars - 50), 0, 0.2)
+                    self.reward[car_id] += rew_min + (distance_cars - distance_min) * delta_r / delta_x
 
-            # If back car catches up to front car, reward back car and penalize front car
-            # Add a cooldown period to prevent oscillations
-            if progress_difference < -0.03 and self.overtake_cooldown == 0:
-                step_reward[car_back] += 5
-                step_reward[car_front] -= 5
-                self.overtake_cooldown = 100
-            elif progress_difference > 0.03 and self.overtake_cooldown == 0:
-                step_reward[car_back] -= 5
-                step_reward[car_front] += 5
-                self.overtake_cooldown = 100
-            elif self.overtake_cooldown > 0:
-                self.overtake_cooldown -= 1
+            # If a car makes significant progress, reward it and penalize the other car. Terminate episode
+            if progress_difference > 0.05:
+                leader_id = np.argmax(self.percent_completed)
+                follower_id = np.argmin(self.percent_completed)
+                self.reward[leader_id] += 1
+                self.reward[follower_id] -= 1
+                done = True
+
+        # Calculate step reward
+        step_reward = self.reward - self.prev_reward
+        self.prev_reward = self.reward.copy()
+
+        # Terminate the episode if a car leaves the field or if the episode length is exceeded
+        for car_id, car in enumerate(self.cars):
+            x, y = car.hull.position
+            if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
+                done = True
+                step_reward[car_id] = -100
+            if self.elapsed_time > 1000:
+                done = True
             
         if self.render_mode == "human":
             self.render(self.render_mode)

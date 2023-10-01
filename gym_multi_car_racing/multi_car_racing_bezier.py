@@ -498,7 +498,6 @@ class parallel_env(ParallelEnv, EzPickle):
         self.percent_completed = np.zeros(self.n_agents)
         self.speed = np.zeros(self.n_agents)
         self.track_index = np.zeros(self.n_agents, dtype=int)
-        self.overtake_cooldown = 0
 
         if self.domain_randomize:
             randomize = True
@@ -579,7 +578,7 @@ class parallel_env(ParallelEnv, EzPickle):
                     x1 -= self.x_offset
                     y1 -= self.y_offset
                     distance_between_cars = np.linalg.norm(np.array([x0, y0]) - np.array([x1, y1]))
-                    i += 1
+                    i += 1 if self.episode_direction == 'CCW' else -1
                 beta0, x0, y0 = self.track[i][1:4]
                 beta0 -= np.pi
                 x0 -= self.x_offset
@@ -704,7 +703,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 car_back = np.argmin(self.track_index)
             else:
                 car_front = np.argmin(self.track_index)
-                car_back = np.argmax(self.track_index)      
+                car_back = np.argmax(self.track_index)
 
             # Distance between cars
             distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position)

@@ -474,7 +474,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.elapsed_time = 0
         self.percent_completed = np.zeros(self.n_agents)
         self.speed = np.zeros(self.n_agents)
-        self.color = [(0, 255, 0), (0, 255, 0)]
+        self.track_index = np.zeros(self.n_agents, dtype=int)
 
         if self.domain_randomize:
             randomize = True
@@ -539,9 +539,24 @@ class parallel_env(ParallelEnv, EzPickle):
             # print(f"Spawning car {car_id} at {new_x:.0f}x{new_y:.0f} with "
             #       f"orientation {angle}")
 
+            beta0, x0, y0 = self.track[0][1:4]
+             # Create second car in front of first car (20 units ahead)
+            if self.car_order[car_id] == 0:
+                distance_between_cars = 0
+                i = 0
+                while distance_between_cars < 20:
+                    beta1, x1, y1 = self.track[i][1:4]
+                    beta1 -= np.pi
+                    distance_between_cars = np.linalg.norm(np.array([x0, y0]) - np.array([x1, y1]))
+                    i += 1 if self.episode_direction == 'CCW' else -1
+                beta0, x0, y0 = self.track[i][1:4]
+                #angle -= np.pi
+
+            if self.episode_direction == 'CW':  # CW direction indicates reversed
+                beta0 -= np.pi  # Flip direction is either 0 or pi
+
             # Create car at location with given angle
-            self.cars[car_id] = car_dynamics.Car(self.world, angle, new_x,
-                                                 new_y)
+            self.cars[car_id] = car_dynamics.Car(self.world,  beta0, x0, y0)
             self.cars[car_id].hull.color = CAR_COLORS[car_id % len(CAR_COLORS)]
 
             # This will be used to identify the car that touches a particular tile.
@@ -605,74 +620,33 @@ class parallel_env(ParallelEnv, EzPickle):
 
                 # Retrieve car position
                 car_pos = np.array(car.hull.position).reshape((1, 2))
-                car_pos_as_point = Point((float(car_pos[:, 0]),
-                                          float(car_pos[:, 1])))
-
-                # Predict car position in next 100 steps
-                next_pos = car_pos + 10 * vel/FPS
-                next_pos_as_point = Point((float(next_pos[:, 0]),
-                                          float(next_pos[:, 1])))
-
+                
                 # Compute closest point on track to car position (l2 norm)
                 distance_to_tiles = np.linalg.norm(
                     car_pos - np.array(self.track)[:, 2:], ord=2, axis=1)
-                track_index = np.argmin(distance_to_tiles)
+                self.track_index[car_id] = np.argmin(distance_to_tiles)
 
-                # Check if car is driving on grass by checking inside polygons
-                on_grass = not np.array([car_pos_as_point.within(polygon)
-                                   for polygon in self.road_poly_shapely]).any()
-                self.driving_on_grass[car_id] = on_grass
-
-                # Find track angle of closest point
-                desired_angle = self.track[track_index][1]
-
-                # If track direction reversed, reverse desired angle
-                if self.episode_direction == 'CW':  # CW direction indicates reversed
-                    desired_angle += np.pi
-
-                # Map angle to [0, 2pi] interval
-                desired_angle = (desired_angle + (2 * np.pi)) % (2 * np.pi)
-
-                # Compute smallest angle difference between desired and car
-                angle_diff = abs(desired_angle - car_angle)
-                if angle_diff > np.pi:
-                    angle_diff = abs(angle_diff - 2 * np.pi)
-
-                # If car is driving backward and not on grass, penalize car. The
-                # backwards flag is set even if it is driving on grass.
-                if angle_diff > BACKWARD_THRESHOLD:
-                    self.driving_backward[car_id] = True
-                    step_reward[car_id] -= K_BACKWARD * angle_diff
+                # Check if car is driving on grass
+                if distance_to_tiles[self.track_index[car_id]] > TRACK_WIDTH:
+                    self.driving_on_grass[car_id] = True
                 else:
-                    self.driving_backward[car_id] = False
+                    self.driving_on_grass[car_id] = False
 
-                grass_penalty = False
                 # Penalties
                 if self.penalties:
-                    # Penalize car for driving off road
-                    if distance_to_tiles.min() > 6:
-                        self.reward[car_id] -= 0.5
-
-                    # Penalize car if angle difference is large
-                    # if angle_diff > 0.5:
-                    #     self.reward[car_id] -= 0.2
-
-                    # Penalize the car once for touching the grass
-                    if on_grass and not prev_on_grass[car_id]:
-                        step_reward[car_id] = -100
-                        grass_penalty = True
+                    # Penalize car if it is driving on grass
+                    if self.driving_on_grass[car_id]:
+                        self.reward[car_id] -= self.speed[car_id]**2 * 2.5e-5            
 
                     # Penalize car for driving slowly
-                    # if self.speed[car_id] < 40:
-                    #     self.reward[car_id] -= 0.3
-
-                #print("SPEED:", self.speed[car_id], "ANGLE_DIFF:", angle_diff, end="\r")
+                    # if self.speed[car_id] < 10:
+                    #     step_reward[car_id] -= 0.1
 
                 # Calculate time spent on grass
-                if on_grass:
-                    self.time_on_grass[car_id] += 1
-                else:
-                    self.time_on_grass[car_id] = 0
+                # if self.driving_on_grass[car_id]:
+                #     self.time_on_grass[car_id] += 1
+                # else:
+                #     self.time_on_grass[car_id] = 0
 
                 self.percent_completed[car_id] = self.tile_visited_count[car_id] / len(self.track)
 
@@ -684,21 +658,59 @@ class parallel_env(ParallelEnv, EzPickle):
             if self.percent_completed[car_id] > self.percent_complete:
                 done = True
 
-            # Terminate the episode if a car leaves the field, spends too much
-            # time on grass or the time limit is reached
-            for car_id, car in enumerate(self.cars):
-                x, y = car.hull.position
-                if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
-                    done = True
-                    step_reward[car_id] = -100
-                if self.elapsed_time > 1000:  # self.time_on_grass[car_id] > 300
-                    done = True
+        # For multi-car environment, reward car 0 if it gets closer to car 1; reward car 1 if it
+        # gets further away from car 0. If car 0 gets too close to car 1, reward car 0. If car 1
+        # gets too far from car 0, reward car 1.
+        if self.n_agents > 1:
+            
+            if self.episode_direction == "CCW":
+                car_front = np.argmax(self.track_index)
+                car_back = np.argmin(self.track_index)
+            else:
+                car_front = np.argmin(self.track_index)
+                car_back = np.argmax(self.track_index)
+
+            # Distance between cars
+            distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position)
+            progress_difference = np.abs(self.percent_completed[car_front] - self.percent_completed[car_back])
+
+            # Min and max values for distance and reward
+            distance_min = 7
+            distance_max = 50
+            rew_min = -0.05
+            rew_max = 0.05
+            delta_x = distance_max - distance_min
+            delta_r = rew_max - rew_min
+
+            for car_id in range(self.n_agents):
+                # Reward back car if it gets closer to front car
+                if car_id == car_back and distance_cars < 50 and not self.driving_on_grass[car_id]:
+                    self.reward[car_id] += rew_max - (distance_cars - distance_min) * delta_r / delta_x
+                # Reward front car if it gets further away from back car
+                elif car_id == car_front and distance_cars < 50 and not self.driving_on_grass[car_id]:
+                    self.reward[car_id] += rew_min + (distance_cars - distance_min) * delta_r / delta_x
+
+            # If a car makes significant progress, reward it and penalize the other car. Terminate episode
+            if progress_difference > 0.05:
+                leader_id = np.argmax(self.percent_completed)
+                follower_id = np.argmin(self.percent_completed)
+                self.reward[leader_id] += 1
+                self.reward[follower_id] -= 1
+                done = True
 
         # Calculate step reward
-        if not grass_penalty:
-            step_reward = self.reward - self.prev_reward
+        step_reward = self.reward - self.prev_reward
         self.prev_reward = self.reward.copy()
 
+        # Terminate the episode if a car leaves the field or if the episode length is exceeded
+        for car_id, car in enumerate(self.cars):
+            x, y = car.hull.position
+            if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
+                done = True
+                step_reward[car_id] = -100
+            if self.elapsed_time > 1000:
+                done = True
+            
         if self.render_mode == "human":
             self.render(self.render_mode)
 
@@ -710,7 +722,7 @@ class parallel_env(ParallelEnv, EzPickle):
         infos = {car_id: {f"episode": {"r": self.reward[i], "l": self.elapsed_time}} for i, car_id in enumerate(self.agents)}            
 
         if done and self.verbose == 1:
-            print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}\n")
+            print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}")
 
         # If no actions are passed
         if actions is None:
@@ -887,7 +899,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
 if __name__=="__main__":
     from pyglet.window import key
-    NUM_CARS = 1  # Supports key control of two cars, but can simulate as many as needed
+    NUM_CARS = 2  # Supports key control of two cars, but can simulate as many as needed
 
     discrete_action_space = False
 

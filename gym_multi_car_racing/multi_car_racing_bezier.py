@@ -671,7 +671,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if self.penalties:
                     # Penalize car if it is driving on grass
                     if self.driving_on_grass[car_id]:
-                        self.reward[car_id] -= self.speed[car_id]**2 * 2.5e-5        
+                        self.reward[car_id] -= np.max([0.1, self.speed[car_id]**2 * 2.5e-5 ])       
 
                     # Penalize car for driving slowly
                     # if self.speed[car_id] < 10:

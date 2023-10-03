@@ -671,7 +671,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if self.penalties:
                     # Penalize car if it is driving on grass
                     if self.driving_on_grass[car_id]:
-                        self.reward[car_id] -= self.speed[car_id]**2 * 2.5e-5            
+                        self.reward[car_id] -= self.speed[car_id]**2 * 2.5e-5        
 
                     # Penalize car for driving slowly
                     # if self.speed[car_id] < 10:
@@ -726,11 +726,11 @@ class parallel_env(ParallelEnv, EzPickle):
                     self.reward[car_id] += rew_min + (distance_cars - distance_min) * delta_r / delta_x
 
             # If a car makes significant progress, reward it and penalize the other car. Terminate episode
-            if progress_difference > 0.05:
-                leader_id = np.argmax(self.percent_completed)
-                follower_id = np.argmin(self.percent_completed)
-                self.reward[leader_id] += 1
-                self.reward[follower_id] -= 1
+            # if progress_difference > 0.05:
+            #     leader_id = np.argmax(self.percent_completed)
+            #     follower_id = np.argmin(self.percent_completed)
+            #     self.reward[leader_id] += 1
+            #     self.reward[follower_id] -= 1
 
         # Calculate step reward
         step_reward = self.reward - self.prev_reward

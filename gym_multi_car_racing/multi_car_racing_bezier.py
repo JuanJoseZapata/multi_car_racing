@@ -731,7 +731,6 @@ class parallel_env(ParallelEnv, EzPickle):
                 follower_id = np.argmin(self.percent_completed)
                 self.reward[leader_id] += 1
                 self.reward[follower_id] -= 1
-                done = True
 
         # Calculate step reward
         step_reward = self.reward - self.prev_reward

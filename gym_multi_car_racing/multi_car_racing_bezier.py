@@ -513,10 +513,13 @@ class parallel_env(ParallelEnv, EzPickle):
         if self.use_random_direction:  # Choose direction randomly
             self.episode_direction = np.random.choice(['CW', 'CCW'])
 
-        # Set positions of cars randomly
+        # Set positions of cars
         ids = [i for i in range(self.n_agents)]
         shuffle_ids = np.random.choice(ids, size=self.n_agents, replace=False)
         self.car_order = {i: shuffle_ids[i] for i in range(self.n_agents)}
+        self.car_order = {0: 1, 1:0}
+        self.car_front = self.car_order[0]
+        self.car_back = self.car_order[1]
 
         while True:
             success = self._create_track()
@@ -568,16 +571,16 @@ class parallel_env(ParallelEnv, EzPickle):
             x0 -= self.x_offset
             y0 -= self.y_offset
 
-            # Create second car in front of first car (20 units ahead)
+            # Create first car 20 units ahead of the track starting point
             if self.car_order[car_id] == 0:
-                distance_between_cars = 0
+                distance_to_start_point = 0
                 i = 0
-                while distance_between_cars < 20:
+                while distance_to_start_point < 20:
                     beta1, x1, y1 = self.track[i][1:4]
                     beta1 -= np.pi
                     x1 -= self.x_offset
                     y1 -= self.y_offset
-                    distance_between_cars = np.linalg.norm(np.array([x0, y0]) - np.array([x1, y1]))
+                    distance_to_start_point = np.linalg.norm(np.array([x0, y0]) - np.array([x1, y1]))
                     i += 1 if self.episode_direction == 'CCW' else -1
                 beta0, x0, y0 = self.track[i][1:4]
                 beta0 -= np.pi
@@ -653,8 +656,6 @@ class parallel_env(ParallelEnv, EzPickle):
                 # Retrieve car position
                 car_pos = np.array(car.hull.position).reshape((1, 2))
                 car_pos += np.array([self.x_offset, self.y_offset])
-                car_pos_as_point = Point((float(car_pos[:, 0]),
-                                          float(car_pos[:, 1])))
                 
                 # Compute closest point on track to car position (l2 norm)
                 distance_to_tiles = np.linalg.norm(
@@ -671,7 +672,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if self.penalties:
                     # Penalize car if it is driving on grass
                     if self.driving_on_grass[car_id]:
-                        self.reward[car_id] -= np.max([0.1, self.speed[car_id]**2 * 2.5e-5 ])       
+                        self.reward[car_id] -= np.max([0.1, self.speed[car_id]**2 * 2.5e-5])       
 
                     # Penalize car for driving slowly
                     # if self.speed[car_id] < 10:
@@ -697,40 +698,18 @@ class parallel_env(ParallelEnv, EzPickle):
         # gets further away from car 0. If car 0 gets too close to car 1, reward car 0. If car 1
         # gets too far from car 0, reward car 1.
         if self.n_agents > 1:
-            
-            if self.episode_direction == "CCW":
-                car_front = np.argmax(self.track_index)
-                car_back = np.argmin(self.track_index)
-            else:
-                car_front = np.argmin(self.track_index)
-                car_back = np.argmax(self.track_index)
 
             # Distance between cars
-            distance_cars = np.linalg.norm(self.cars[car_front].hull.position - self.cars[car_back].hull.position)
-            progress_difference = np.abs(self.percent_completed[car_front] - self.percent_completed[car_back])
+            distance_cars = np.linalg.norm(self.cars[self.car_front].hull.position - self.cars[self.car_back].hull.position)
+            progress_difference = np.abs(self.percent_completed[self.car_front] - self.percent_completed[self.car_back])
 
-            # Min and max values for distance and reward
-            distance_min = 7
-            distance_max = 50
-            rew_min = -0.05
-            rew_max = 0.05
-            delta_x = distance_max - distance_min
-            delta_r = rew_max - rew_min
-
-            for car_id in range(self.n_agents):
-                # Reward back car if it gets closer to front car
-                if car_id == car_back and distance_cars < 50 and not self.driving_on_grass[car_id]:
-                    self.reward[car_id] += rew_max - (distance_cars - distance_min) * delta_r / delta_x
-                # Reward front car if it gets further away from back car
-                elif car_id == car_front and distance_cars < 50 and not self.driving_on_grass[car_id]:
-                    self.reward[car_id] += rew_min + (distance_cars - distance_min) * delta_r / delta_x
-
-            # If a car makes significant progress, reward it and penalize the other car. Terminate episode
-            # if progress_difference > 0.05:
-            #     leader_id = np.argmax(self.percent_completed)
-            #     follower_id = np.argmin(self.percent_completed)
-            #     self.reward[leader_id] += 1
-            #     self.reward[follower_id] -= 1
+            diff_track_position = self.track_index[self.car_back] - self.track_index[self.car_front]
+            if self.episode_direction == 'CW':
+                diff_track_position *= -1
+            
+            # Reward back car for getting closer and overtaking front car
+            overtake_reward = 0.1/8 * diff_track_position
+            self.reward[self.car_back] += np.clip(overtake_reward, -0.1, 0.05)
 
         # Calculate step reward
         step_reward = self.reward - self.prev_reward

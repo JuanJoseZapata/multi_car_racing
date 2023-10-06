@@ -708,8 +708,9 @@ class parallel_env(ParallelEnv, EzPickle):
                 diff_track_position *= -1
             
             # Reward back car for getting closer and overtaking front car
-            overtake_reward = 0.1/8 * diff_track_position
+            overtake_reward = 0.1/10 * diff_track_position
             self.reward[self.car_back] += np.clip(overtake_reward, -0.1, 0.05)
+            self.reward[self.car_front] -= np.clip(overtake_reward, -0.05, 0.1)
 
         # Calculate step reward
         step_reward = self.reward - self.prev_reward
@@ -957,7 +958,7 @@ if __name__=="__main__":
 
     env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
                        backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space,
-                       domain_randomize=DOMAIN_RANDOMIZE, angle_jitter=ANGLE_JITTER)
+                       domain_randomize=DOMAIN_RANDOMIZE, angle_jitter=ANGLE_JITTER, use_ego_color=True)
     env.render("human")
     for viewer in env.viewer:
         viewer.window.on_key_press = key_press

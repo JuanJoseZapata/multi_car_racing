@@ -192,7 +192,7 @@ class parallel_env(ParallelEnv, EzPickle):
                  discrete_action_space=False, grayscale=False,
                  percent_complete=0.95, domain_randomize=False,
                  penalties=False, angle_jitter=0, n_control_points=12,
-                 loaded_track=None):
+                 loaded_track=None, grass_penalty_weight=2.5e-5):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -236,6 +236,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.full_zoom = 0.25
         self.show_borders = True
         self.loaded_track = loaded_track
+        self.grass_penalty_weight = grass_penalty_weight
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
         self.action_ub = np.tile(np.array([+1,+1,+1]), 1).astype(np.float32)
@@ -672,17 +673,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if self.penalties:
                     # Penalize car if it is driving on grass
                     if self.driving_on_grass[car_id]:
-                        self.reward[car_id] -= np.max([0.1, self.speed[car_id]**2 * 2.5e-5])       
-
-                    # Penalize car for driving slowly
-                    # if self.speed[car_id] < 10:
-                    #     step_reward[car_id] -= 0.1
-
-                # Calculate time spent on grass
-                # if self.driving_on_grass[car_id]:
-                #     self.time_on_grass[car_id] += 1
-                # else:
-                #     self.time_on_grass[car_id] = 0
+                        self.reward[car_id] -= np.max([0.1, self.speed[car_id]**2 * self.grass_penalty_weight])       
 
                 self.percent_completed[car_id] = self.tile_visited_count[car_id] / len(self.track)
 
@@ -958,7 +949,8 @@ if __name__=="__main__":
 
     env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
                        backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space,
-                       domain_randomize=DOMAIN_RANDOMIZE, angle_jitter=ANGLE_JITTER, use_ego_color=True)
+                       domain_randomize=DOMAIN_RANDOMIZE, angle_jitter=ANGLE_JITTER, use_ego_color=True,
+                       grass_penalty_weight=1e-4)
     env.render("human")
     for viewer in env.viewer:
         viewer.window.on_key_press = key_press

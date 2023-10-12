@@ -29,6 +29,7 @@ except ImportError:
     import bezier
 
 from scipy.interpolate import UnivariateSpline
+import alphashape
 
 import warnings
 warnings.filterwarnings("error", category=UserWarning)
@@ -333,6 +334,46 @@ class parallel_env(ParallelEnv, EzPickle):
         points_fitted = np.vstack([spl(alpha) for spl in splines]).T
 
         return points_fitted
+    
+    def improve_track(self, x, y):
+
+        # Calculate center
+        img = np.zeros((380, 380), dtype=np.uint8)
+
+        # Shift image so it does not touch the boundary
+        min_x = np.min(x)
+        min_y = np.min(y)
+        if min_x < 0:
+            x += -2*min_x
+        if min_y < 0:
+            y += -2*min_y
+
+        for point in zip(x, y):
+            img[int(point[0]), int(point[1])] = 1
+
+        center = [int(x.mean()), int(y.mean())]
+        points_2d = np.array([x,y]).T
+        # Fill contour
+        for point in points_2d:
+            point = point.astype(int)
+            cv2.line(img, point, center, color=255, thickness=1)
+        # Resize image
+        img = cv2.resize(img, dsize=(64, 64), interpolation=cv2.INTER_AREA)
+        img = np.ceil(img/2).astype(int)
+        points_2d = np.array(np.where(img > 0)).T
+        # Get alpha shape
+        alpha_shape = alphashape.alphashape(points_2d, alpha=0.6)
+        geom_type = alpha_shape.geom_type
+        alpha = 0.6
+        while geom_type == "MultiPolygon":
+            alpha -= 0.01
+            alpha_shape = alphashape.alphashape(points_2d, alpha=alpha)
+            geom_type = alpha_shape.geom_type
+        points = np.array([xy for xy in alpha_shape.exterior.coords])
+        xy_spline = self.fit_spline(points, num_points=400)
+        x, y = xy_spline[:,0] * 380/64, xy_spline[:,1]*380/64
+
+        return x, y
 
     def _create_track(self, control_points=None, show_borders=None):
             return self._create_track_bezier(
@@ -356,8 +397,7 @@ class parallel_env(ParallelEnv, EzPickle):
             self.track_data = a
 
         try:
-            xy_spline = self.fit_spline(np.array([x, y]).T, num_points=400)
-            x, y = xy_spline[:,0], xy_spline[:,1]
+            x, y = self.improve_track(x, y)
         except UserWarning:
             print("Could not fit spline")
             pass

@@ -347,6 +347,7 @@ class parallel_env(ParallelEnv, EzPickle):
             x += -2*min_x
         if min_y < 0:
             y += -2*min_y
+        x, y = np.clip(x, 0, 379), np.clip(y, 0, 379)
 
         for point in zip(x, y):
             img[int(point[0]), int(point[1])] = 1

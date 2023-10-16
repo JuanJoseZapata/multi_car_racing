@@ -190,7 +190,7 @@ class parallel_env(ParallelEnv, EzPickle):
                  use_ego_color=False, render_mode="state_pixels",
                  discrete_action_space=False, grayscale=False,
                  percent_complete=0.95, domain_randomize=False,
-                 penalties=False, angle_jitter=0):
+                 penalties=False, angle_jitter=0, penalty_weight=0.1):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -223,6 +223,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.percent_complete = percent_complete  # Percentage of track completion required to finish episode
         self.domain_randomize = domain_randomize  # Whether to randomize the background and grass colors
         self.penalties = penalties  # Whether to add penalties for driving backwards and driving on grass
+        self.penalty_weight = penalty_weight
         self.angle_jitter = angle_jitter  # Random angle jitter for starting position of cars
         self._init_colors()
 
@@ -636,7 +637,7 @@ class parallel_env(ParallelEnv, EzPickle):
                 if self.penalties:
                     # Penalize car if it is driving on grass
                     if self.driving_on_grass[car_id]:
-                        self.reward[car_id] -= self.speed[car_id]**2 * 2.5e-5            
+                        self.reward[car_id] -= self.penalty_weight            
 
                     # Penalize car for driving slowly
                     # if self.speed[car_id] < 10:

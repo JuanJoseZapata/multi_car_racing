@@ -193,7 +193,7 @@ class parallel_env(ParallelEnv, EzPickle):
                  discrete_action_space=False, grayscale=False,
                  percent_complete=0.95, domain_randomize=False,
                  penalties=False, angle_jitter=0, n_control_points=12,
-                 loaded_track=None, penalty_weight=0.1):
+                 control_points=None, penalty_weight=0.1):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -236,8 +236,8 @@ class parallel_env(ParallelEnv, EzPickle):
         self.playfield = PLAYFIELD
         self.full_zoom = 0.25
         self.show_borders = True
-        self.loaded_track = loaded_track
         self.penalty_weight = penalty_weight
+        self.control_points = control_points
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
         self.action_ub = np.tile(np.array([+1,+1,+1]), 1).astype(np.float32)
@@ -342,9 +342,7 @@ class parallel_env(ParallelEnv, EzPickle):
             x, y, _ = bezier.get_bezier_curve(a=a, rad=0.2, edgy=0.2, numpoints=40)
             self.track_data = a
 
-        if self.loaded_track is not None:
-            self.loaded_track = np.array(self.loaded_track)
-            x, y = self.loaded_track[:,0], self.loaded_track[:,1]
+        self.control_points = a
 
         min_x, max_x = x[-1], x[-1]
         min_y, max_y = y[-1], y[-1]

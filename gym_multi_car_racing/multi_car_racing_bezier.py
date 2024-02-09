@@ -193,7 +193,7 @@ class parallel_env(ParallelEnv, EzPickle):
                  discrete_action_space=False, grayscale=False,
                  percent_complete=0.95, domain_randomize=False,
                  penalties=False, angle_jitter=0, n_control_points=12,
-                 control_points=None, penalty_weight=0.1):
+                 curriculum=False, penalty_weight=0.1):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -237,7 +237,9 @@ class parallel_env(ParallelEnv, EzPickle):
         self.full_zoom = 0.25
         self.show_borders = True
         self.penalty_weight = penalty_weight
-        self.control_points = control_points
+        # Whether to use curriculum learning. If True, each new track needs to be passed externally.
+        # If False, the track will be randomly generated everytime reset() is called.
+        self.curriculum = curriculum
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
         self.action_ub = np.tile(np.array([+1,+1,+1]), 1).astype(np.float32)

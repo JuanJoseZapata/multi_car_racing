@@ -29,7 +29,6 @@ except ImportError:
     import bezier
 
 from scipy.interpolate import UnivariateSpline
-import alphashape
 
 import warnings
 warnings.filterwarnings("error", category=UserWarning)
@@ -193,7 +192,7 @@ class parallel_env(ParallelEnv, EzPickle):
                  discrete_action_space=False, grayscale=False,
                  percent_complete=0.95, domain_randomize=False,
                  penalties=False, angle_jitter=0, n_control_points=12,
-                 curriculum=False, penalty_weight=0.1):
+                 loaded_track=None, penalty_weight=0.1):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -236,10 +235,8 @@ class parallel_env(ParallelEnv, EzPickle):
         self.playfield = PLAYFIELD
         self.full_zoom = 0.25
         self.show_borders = True
+        self.loaded_track = loaded_track
         self.penalty_weight = penalty_weight
-        # Whether to use curriculum learning. If True, each new track needs to be passed externally.
-        # If False, the track will be randomly generated everytime reset() is called.
-        self.curriculum = curriculum
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
         self.action_ub = np.tile(np.array([+1,+1,+1]), 1).astype(np.float32)
@@ -323,6 +320,20 @@ class parallel_env(ParallelEnv, EzPickle):
             idx = self.np_random.integers(3)
             self.grass_color[idx] += 20 / 255.
 
+    def fit_spline(self, points, num_points=200):
+        # Linear length along the line:
+        distance = np.cumsum( np.sqrt(np.sum( np.diff(points, axis=0)**2, axis=1 )) )
+        distance = np.insert(distance, 0, 0)/distance[-1]
+
+        # Build a list of the spline function, one for each dimension:
+        splines = [UnivariateSpline(distance, coords, k=5, s=10) for coords in points.T]
+
+        # Computed the spline for the asked distances:
+        alpha = np.linspace(0, 1, num_points)
+        points_fitted = np.vstack([spl(alpha) for spl in splines]).T
+
+        return points_fitted
+
     def _create_track(self, control_points=None, show_borders=None):
             return self._create_track_bezier(
                 control_points=control_points, 
@@ -333,7 +344,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
         # Create random bezier curve
         track = []
-        self.road = []
+        self.road = [] 
 
         if control_points is not None:
             a = np.array(control_points)
@@ -344,7 +355,16 @@ class parallel_env(ParallelEnv, EzPickle):
             x, y, _ = bezier.get_bezier_curve(a=a, rad=0.2, edgy=0.2, numpoints=40)
             self.track_data = a
 
-        self.control_points = a
+        try:
+            xy_spline = self.fit_spline(np.array([x, y]).T, num_points=400)
+            x, y = xy_spline[:,0], xy_spline[:,1]
+        except UserWarning:
+            print("Could not fit spline")
+            pass
+
+        if self.loaded_track is not None:
+            self.loaded_track = np.array(self.loaded_track)
+            x, y = self.loaded_track[:,0], self.loaded_track[:,1]
 
         min_x, max_x = x[-1], x[-1]
         min_y, max_y = y[-1], y[-1]
@@ -480,9 +500,6 @@ class parallel_env(ParallelEnv, EzPickle):
         self.speed = np.zeros(self.n_agents)
         self.track_index = np.zeros(self.n_agents, dtype=int)
 
-        if not self.curriculum:
-            self.control_points = None
-
         if self.domain_randomize:
             randomize = True
             if isinstance(options, dict):
@@ -506,7 +523,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.car_back = self.car_order[1]
 
         while True:
-            success = self._create_track(control_points=self.control_points)
+            success = self._create_track()
             if success:
                 break
             if self.verbose == 1:
@@ -585,7 +602,7 @@ class parallel_env(ParallelEnv, EzPickle):
         obs = self.render("state_pixels")
         observations = {agent: preprocess(obs[i], self.grayscale) for i, agent in enumerate(self.agents)}
 
-        infos = {car_id: {"reward": self.reward[i], "length": self.elapsed_time, "control_points": self.control_points} for i, car_id in enumerate(self.agents)}
+        infos = {car_id: {f"episode": {"r": self.reward[i], "l": self.elapsed_time}} for i, car_id in enumerate(self.agents)}
 
         return observations, infos
 
@@ -707,7 +724,7 @@ class parallel_env(ParallelEnv, EzPickle):
         observations = {car_id: preprocess(self.state[i], self.grayscale) for i, car_id in enumerate(self.agents)}
         terminations = {car_id: done for car_id in self.agents}
         truncations = {car_id: done for car_id in self.agents}
-        infos = {car_id: {"reward": self.reward[i], "length": self.elapsed_time, "control_points": self.control_points} for i, car_id in enumerate(self.agents)}          
+        infos = {car_id: {f"episode": {"r": self.reward[i], "l": self.elapsed_time}} for i, car_id in enumerate(self.agents)}            
 
         if done and self.verbose == 1:
             print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}")
@@ -747,7 +764,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
         if "t" not in self.__dict__: return  # reset() not called yet
 
-        zoom = SCALE*ZOOM #0.1*SCALE*max(1-self.t, 0) + ZOOM*SCALE*min(self.t, 1)   # Animate zoom first second
+        zoom = 0.1*SCALE*max(1-self.t, 0) + ZOOM*SCALE*min(self.t, 1)   # Animate zoom first second
         #NOTE (ig): Following two variables seemed unused. Commented them out.
         #zoom_state  = ZOOM*SCALE*STATE_W/WINDOW_W 
         #zoom_video  = ZOOM*SCALE*VIDEO_W/WINDOW_W
@@ -887,7 +904,7 @@ class parallel_env(ParallelEnv, EzPickle):
 
 if __name__=="__main__":
     from pyglet.window import key
-    NUM_CARS = 1  # Supports key control of two cars, but can simulate as many as needed
+    NUM_CARS = 2  # Supports key control of two cars, but can simulate as many as needed
 
     discrete_action_space = False
 

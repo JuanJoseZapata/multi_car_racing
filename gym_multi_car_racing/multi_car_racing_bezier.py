@@ -236,6 +236,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.full_zoom = 0.25
         self.show_borders = True
         self.penalty_weight = penalty_weight
+        self.control_points = None
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
         self.action_ub = np.tile(np.array([+1,+1,+1]), 1).astype(np.float32)
@@ -482,7 +483,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.track_index = np.zeros(self.n_agents, dtype=int)
 
         # Set control points to None. Change if using curriculum learning
-        self.control_points = None
+        #self.control_points = None
 
         if self.domain_randomize:
             randomize = True

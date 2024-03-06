@@ -482,9 +482,6 @@ class parallel_env(ParallelEnv, EzPickle):
         self.speed = np.zeros(self.n_agents)
         self.track_index = np.zeros(self.n_agents, dtype=int)
 
-        # Set control points to None. Change if using curriculum learning
-        #self.control_points = None
-
         if self.domain_randomize:
             randomize = True
             if isinstance(options, dict):

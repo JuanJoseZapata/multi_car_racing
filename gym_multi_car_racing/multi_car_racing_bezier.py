@@ -80,7 +80,7 @@ SCALE       = 6.0        # Track scale (default = 6.0)
 TRACK_RAD   = 900/SCALE  # Track is heavily morphed circle with this radius (default = 900)
 PLAYFIELD   = 2000/SCALE # Game over boundary
 FPS         = 50        # Frames per second
-ZOOM        = 2.7        # Camera zoom (default = 2.7)
+ZOOM        = 0.17        # Camera zoom (default = 2.7)
 ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
 
 
@@ -711,6 +711,9 @@ class parallel_env(ParallelEnv, EzPickle):
         if done and self.verbose == 1:
             print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}")
 
+        # Reset control points
+        if done:
+            self.control_points = None
         # If no actions are passed
         if actions is None:
             return observations, infos

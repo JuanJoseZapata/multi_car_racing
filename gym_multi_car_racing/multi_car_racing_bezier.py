@@ -178,6 +178,34 @@ def raw_env(render_mode=None, **kwargs):
     env = parallel_to_aec(env)
     return env
 
+def get_random_points(n=12):
+    # 10x10 grid
+    grid = np.zeros((10, 10))
+    points = []
+    for k in range(n):
+        while True:
+            i, j = np.random.randint(0, grid.shape[0]), np.random.randint(0, grid.shape[1])
+            if grid[i, j] == 0:
+                grid[i, j] = 1
+                points.append([i, j])
+                break
+
+    sketch_dim = 10
+    sketch_ratio = PLAYFIELD/sketch_dim
+
+    unnorm_points = []
+    for point in points:
+
+        unnorm_x = (point[0] + 1)*sketch_ratio
+        unnorm_y = (point[1] + 1)*sketch_ratio
+
+        unnorm_x = np.round(unnorm_x, 0)
+        unnorm_y = np.round(unnorm_y, 0)
+
+        unnorm_points.append((unnorm_x, unnorm_y))
+
+    return np.array(unnorm_points)
+
 
 class parallel_env(ParallelEnv, EzPickle):
     metadata = {
@@ -337,7 +365,8 @@ class parallel_env(ParallelEnv, EzPickle):
             x, y, _ = bezier.get_bezier_curve(a=a, rad=0.2, edgy=0.2, numpoints=40)
             self.track_data = a
         else:
-            a = bezier.get_random_points(n=self.n_control_points, scale=self.playfield, np_random=self.np_random)
+            #a = bezier.get_random_points(n=self.n_control_points, scale=self.playfield, np_random=self.np_random)
+            a = get_random_points(n=self.n_control_points)
             x, y, _ = bezier.get_bezier_curve(a=a, rad=0.2, edgy=0.2, numpoints=40)
             self.track_data = a
 
@@ -712,8 +741,8 @@ class parallel_env(ParallelEnv, EzPickle):
             print(f"Agent {car_id} reward: {self.reward[car_id]:.1f}")
 
         # Reset control points
-        if done:
-            self.control_points = None
+        # if done:
+        #     self.control_points = None
         # If no actions are passed
         if actions is None:
             return observations, infos

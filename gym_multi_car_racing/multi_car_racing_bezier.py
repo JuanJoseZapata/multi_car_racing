@@ -33,6 +33,8 @@ from scipy.interpolate import UnivariateSpline
 import warnings
 warnings.filterwarnings("error", category=UserWarning)
 
+from collections import deque
+
 
 def preprocess(img, grayscale):
     img = img[:84, 6:90, :] # CarRacing-v2-specific cropping
@@ -219,8 +221,8 @@ class parallel_env(ParallelEnv, EzPickle):
                  use_ego_color=False, render_mode="state_pixels",
                  discrete_action_space=False, grayscale=False,
                  percent_complete=0.95, domain_randomize=False,
-                 penalties=False, angle_jitter=0, n_control_points=12,
-                 penalty_weight=0.1):
+                 penalties=True, angle_jitter=0, n_control_points=12,
+                 penalty_weight=0.05):
         EzPickle.__init__(self)
         self.seed()
         self.n_agents = n_agents
@@ -510,6 +512,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.percent_completed = np.zeros(self.n_agents)
         self.speed = np.zeros(self.n_agents)
         self.track_index = np.zeros(self.n_agents, dtype=int)
+        self.reward_history = {car_id: deque([0]*100,maxlen=100) for car_id, _ in enumerate(self.cars)}
 
         if self.domain_randomize:
             randomize = True
@@ -718,14 +721,24 @@ class parallel_env(ParallelEnv, EzPickle):
         step_reward = self.reward - self.prev_reward
         self.prev_reward = self.reward.copy()
 
-        # Terminate the episode if a car leaves the field or if the episode length is exceeded
+        # Add step reward to reward history
+        for car_id, car in enumerate(self.cars):
+            self.reward_history[car_id].append(step_reward[car_id])
+
+        # Terminate the episode early if any of these conditions are met
         for car_id, car in enumerate(self.cars):
             x, y = car.hull.position
+            # Car leaves the playfield
             if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
                 done = True
                 step_reward[car_id] = -100
+            # Max steps reached
             if self.elapsed_time > 1000:
                 done = True
+            # Average reward is less or equal to -0.1
+            if np.mean(self.reward_history[car_id]) <= -0.1:
+                done = True
+            
             
         if self.render_mode == "human":
             self.render(self.render_mode)
@@ -966,8 +979,7 @@ if __name__=="__main__":
 
     env = parallel_env(n_agents=NUM_CARS, use_random_direction=True,
                        backwards_flag=True, verbose=1, discrete_action_space=discrete_action_space,
-                       domain_randomize=DOMAIN_RANDOMIZE, angle_jitter=ANGLE_JITTER, use_ego_color=True,
-                       penalty_weight=0.1)
+                       domain_randomize=DOMAIN_RANDOMIZE, angle_jitter=ANGLE_JITTER, use_ego_color=True)
     env.render("human")
     for viewer in env.viewer:
         viewer.window.on_key_press = key_press

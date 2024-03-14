@@ -8,12 +8,13 @@ import gym.envs.box2d.car_dynamics as car_dynamics
 from gymnasium import spaces
 from gymnasium.utils import colorize, seeding, EzPickle
 
-try:
-    from pyglet.window import key
-except Exception as e:
-    import pyvirtualdisplay
-    # Creates a virtual display for OpenAI gym
-    pyvirtualdisplay.Display(visible=0, size=(1400, 900)).start()
+# Virtual display
+import pyvirtualdisplay
+# Creates a virtual display for OpenAI gym
+pyvirtualdisplay.Display(visible=0, size=(1400, 900)).start()
+
+# Physical display
+# from pyglet.window import key
 
 import pyglet
 from pyglet import gl
@@ -256,6 +257,7 @@ class parallel_env(ParallelEnv, EzPickle):
         self.grayscale = grayscale
         self.domain_randomize = domain_randomize  # Whether to randomize the background and grass colors
         self.f1_track = get_track(track)  # Get track from formula1.py
+        print("Track:", track)
         self._init_colors()
 
         self.action_lb = np.tile(np.array([-1,+0,+0]), 1).astype(np.float32)
